@@ -47,11 +47,24 @@ func main() {
 	activityContext, stopActivityTracking := context.WithCancel(context.Background())
 	activityTrackingDone := auth.StartUserActivityTracking(activityContext, database.DB, 30*time.Second)
 
-	router := gin.Default()
 	if err := os.MkdirAll(uploads.Dir(), 0755); err != nil {
 		log.Fatalf("Erro ao preparar pasta de uploads: %v", err)
 	}
+	router := newRouter()
+	log.Println("Servidor a correr na porta 8080...")
+	serverErr := runServer(router)
 
+	stopActivityTracking()
+	if err := <-activityTrackingDone; err != nil {
+		log.Printf("Erro ao realizar flush final de atividade: %v", err)
+	}
+	if serverErr != nil {
+		log.Fatalf("Erro ao iniciar o servidor: %v", serverErr)
+	}
+}
+
+func newRouter() *gin.Engine {
+	router := gin.Default()
 	config := cors.DefaultConfig()
 	config.AllowOrigins = []string{"*"}
 	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
@@ -75,16 +88,7 @@ func main() {
 		}
 	}
 
-	log.Println("Servidor a correr na porta 8080...")
-	serverErr := runServer(router)
-
-	stopActivityTracking()
-	if err := <-activityTrackingDone; err != nil {
-		log.Printf("Erro ao realizar flush final de atividade: %v", err)
-	}
-	if serverErr != nil {
-		log.Fatalf("Erro ao iniciar o servidor: %v", serverErr)
-	}
+	return router
 }
 
 func runServer(handler http.Handler) error {

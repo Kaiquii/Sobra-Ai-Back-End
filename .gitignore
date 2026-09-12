@@ -58,3 +58,4 @@ migration-backup/
 /uploads/
 /tmp/
 /.codex-go-cache/
+/.artifacts/

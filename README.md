@@ -23,6 +23,35 @@ JWT_SECRET=sua_chave
 GIN_MODE=release
 ```
 
+## Harnesses De Desenvolvimento
+
+O executor de agentes esta em `cmd/harness`: implementacao, testes, revisao e
+tentativas limitadas. Veja [o guia completo](docs/harness/README.md).
+
+```powershell
+go run ./cmd/harness -mode run -task "Descreva a tarefa e os criterios de aceite"
+```
+
+O repositório possui um harness para agentes em `AGENTS.md`. Ele define o contexto obrigatório,
+as regras de implementação, a estratégia de testes e o critério de conclusão. Os comandos
+canônicos e o checklist de revisão ficam em `.agents/`.
+
+Para executar o harness completo de testes no Windows:
+
+```powershell
+.\scripts\test.ps1
+```
+
+No Linux ou macOS:
+
+```bash
+sh ./scripts/test.sh
+```
+
+O fluxo valida formatação, executa `go vet`, roda toda a suíte sem cache e gera cobertura em
+`.artifacts/test/`. Para uma iteração mais rápida, use `-Quick` no PowerShell ou `--quick` no
+shell.
+
 ## Adiantamento De Despesas
 
 Despesas dos tipos `Única` e `Parcelada` podem ter o impacto financeiro antecipado sem alterar o status visual de pagamento. Despesas `Fixa` não aceitam adiantamento.
