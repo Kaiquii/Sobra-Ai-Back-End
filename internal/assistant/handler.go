@@ -42,34 +42,19 @@ func chat(c *gin.Context) {
 		return
 	}
 
-	if pending, ok := lastPendingCreateExpense(userID, conversation.ID); ok && isConfirmationMessage(req.Message) {
-		if err := saveMessage(userID, conversation.ID, "user", req.Message, "", nil); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao salvar mensagem"})
-			return
-		}
-
-		pending["confirm"] = true
-		toolResult, err := createExpenseFromTool(userID, pending)
+	if isConfirmationMessage(req.Message) {
+		toolResult, handled, err := confirmPendingExpense(userID, conversation.ID, req.Message)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "tool_call": "create_expense"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao confirmar despesa; nenhuma alteracao foi gravada"})
 			return
 		}
-
-		reply := localToolReply("create_expense", toolResult)
-		if err := saveMessage(userID, conversation.ID, "assistant", reply, "create_expense", toolResult); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao salvar resposta"})
+		if handled {
+			c.JSON(http.StatusOK, ChatResponse{ConversationID: conversation.ID, Reply: localToolReply("create_expense", toolResult), ToolCall: "create_expense", ToolResult: toolResult})
 			return
 		}
-
-		c.JSON(http.StatusOK, ChatResponse{
-			ConversationID: conversation.ID,
-			Reply:          reply,
-			ToolCall:       "create_expense",
-			ToolResult:     toolResult,
-		})
+		c.JSON(http.StatusOK, ChatResponse{ConversationID: conversation.ID, Reply: "Nao ha cadastro pendente para confirmar. Informe os dados da despesa."})
 		return
 	}
-
 	client, err := newAssistantGenerator()
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
@@ -82,7 +67,12 @@ func chat(c *gin.Context) {
 		return
 	}
 
-	handled, reply, toolCall, toolResult := handleFinancialMessageWithContext(client, userID, req.Message)
+	pending, _, err := pendingCreateExpenseDB(database.DB, userID, conversation.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao carregar rascunho"})
+		return
+	}
+	handled, reply, toolCall, toolResult := handleFinancialMessageWithContext(client, userID, req.Message, pending)
 	if handled {
 		errorCode, retryAfter := responseErrorFields(toolResult)
 		if errorCode != "" {
@@ -317,7 +307,7 @@ func summarizeToolResult(client textGenerator, userMessage string, toolName stri
 }
 
 func isConfirmationMessage(message string) bool {
-	normalized := strings.TrimSpace(strings.ToLower(message))
+	normalized := strings.TrimRight(strings.TrimSpace(strings.ToLower(message)), ".!?")
 	confirmations := []string{
 		"sim",
 		"pode",
@@ -334,7 +324,7 @@ func isConfirmationMessage(message string) bool {
 	}
 
 	for _, confirmation := range confirmations {
-		if normalized == confirmation || strings.Contains(normalized, confirmation) {
+		if normalized == confirmation {
 			return true
 		}
 	}
@@ -391,16 +381,53 @@ func localToolReply(toolName string, toolResult any) string {
 
 	if toolName == "create_expense" {
 		status, _ := result["status"].(string)
+		if status == "cancelled" {
+			return "Cancelei o rascunho. Nenhuma despesa foi cadastrada."
+		}
+		if status == "needs_information" {
+			labels := map[string]string{
+				"description": "descricao da despesa", "category_name": "categoria existente escolhida por voce",
+				"payment_source": "fonte de pagamento (Salario, Adiantamento ou Renda Extra)",
+				"amount":         "valor positivo com ate duas casas decimais (total da compra, se parcelada)",
+				"date":           "data completa valida (dia, mes e ano)",
+				"type":           "tipo (Unica, Parcelada ou Fixa)", "installments": "quantidade de parcelas (2 a 120)",
+			}
+			var fields []string
+			if missing, ok := result["missing_fields"].([]string); ok {
+				for _, key := range missing {
+					fields = append(fields, labels[key])
+				}
+			}
+			return "Antes de cadastrar, preciso que informe ou corrija: " + strings.Join(fields, "; ") + ". Nenhuma despesa foi cadastrada."
+		}
 		description, _ := result["description"].(string)
 		paymentSource, _ := result["payment_source"].(string)
 		date, _ := result["date"].(string)
 		amount := numberToFloat(result["amount"])
-
-		if status == "created" {
-			return "Cadastrei a despesa " + description + " no valor de R$ " + formatMoney(amount) + ", paga com " + paymentSource + ", na data " + date + "."
+		category, _ := result["category_name"].(string)
+		kind, _ := result["type"].(string)
+		details := description + ", categoria " + category + ", tipo " + kind + ", fonte " + paymentSource + ", primeira data " + date
+		if kind == "Parcelada" {
+			count, _ := intArg(result, "installments")
+			parts := []string{}
+			if amounts, ok := result["installment_amounts"].([]float64); ok {
+				for _, value := range amounts {
+					parts = append(parts, "R$ "+formatMoney(value))
+				}
+			}
+			details += ", total R$ " + formatMoney(amount) + " em " + strconv.Itoa(count) + " parcelas: " + strings.Join(parts, ", ")
+		} else {
+			details += ", valor R$ " + formatMoney(amount)
+			if kind == "Fixa" {
+				details += " por mes (120 lancamentos)"
+			}
 		}
 
-		return "Gostaria de cadastrar uma despesa de " + description + ", no valor de R$ " + formatMoney(amount) + ", paga com " + paymentSource + ", na data " + date + ". Posso confirmar?"
+		if status == "created" {
+			return "Cadastrei: " + details + "."
+		}
+
+		return "Confira o cadastro: " + details + ". Posso confirmar?"
 	}
 
 	if toolName == "get_monthly_summary" {
@@ -555,7 +582,7 @@ func systemPrompt() string {
 		"Responda apenas sobre o aplicativo e sobre os dados financeiros do usuario. " +
 		"Para perguntas de como usar o app, explique de forma simples: o usuario pode cadastrar despesas, rendas, categorias, ver resumo mensal, gastos por categoria e graficos. " +
 		"Para perguntas financeiras, use as ferramentas disponiveis em vez de inventar numeros. " +
-		"Quando o usuario pedir para cadastrar uma despesa com uma categoria, envie o nome exato da categoria em category_name. O backend vai usar a categoria existente ou criar uma nova quando o usuario confirmar. " +
+		"No cadastro de despesas, nunca invente campos ausentes nem afirme que houve cadastro sem resultado created. A categoria deve existir e ter sido escolhida pelo usuario. " +
 		"Nunca diga que acessou o banco diretamente; quem executa as consultas e o backend Go. " +
 		"Para criar, atualizar ou deletar dados, nunca execute sem confirmacao clara do usuario. " +
 		"Na ferramenta create_expense, use confirm=false para a primeira interpretacao do pedido. Use confirm=true somente se a mensagem atual confirmar claramente uma proposta anterior. " +

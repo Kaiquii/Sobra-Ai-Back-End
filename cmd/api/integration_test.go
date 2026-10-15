@@ -3,8 +3,10 @@
 package main
 
 import (
+	"Sobra_Ai_Back-end/internal/assistant"
 	"Sobra_Ai_Back-end/internal/auth"
 	"Sobra_Ai_Back-end/internal/database"
+	"Sobra_Ai_Back-end/internal/expenses"
 	"Sobra_Ai_Back-end/internal/migrations"
 	"context"
 	"encoding/json"
@@ -15,6 +17,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +27,41 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+// Intercept only the provider call; local API requests still use real TCP.
+// No integration scenario may contact an external LLM.
+type integrationLLMTransport struct {
+	base      http.RoundTripper
+	mu        sync.Mutex
+	responses []string
+	prompts   []string
+}
+
+func (transport *integrationLLMTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Hostname() == "127.0.0.1" {
+		return transport.base.RoundTrip(req)
+	}
+	if req.URL.Hostname() != "api.groq.com" {
+		return nil, fmt.Errorf("external network forbidden in integration test")
+	}
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	transport.prompts = append(transport.prompts, string(body))
+	if len(transport.responses) == 0 {
+		return nil, fmt.Errorf("unexpected provider call")
+	}
+	content := transport.responses[0]
+	transport.responses = transport.responses[1:]
+	encoded, err := json.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": content}}}})
+	if err != nil {
+		return nil, err
+	}
+	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(encoded))), Request: req}, nil
+}
 
 // Never uses DB_DSN, .env, Docker's selected remote context or production volumes.
 func disposablePostgres(t *testing.T) *gorm.DB {
@@ -104,6 +142,17 @@ func TestIntegrationAPI(t *testing.T) {
 	t.Cleanup(func() { database.DB = previous })
 	t.Setenv("JWT_SECRET", "harness-only-signing-key")
 	t.Setenv("UPLOADS_DIR", t.TempDir())
+	t.Setenv("GROQ_API_KEY", "harness-only")
+	t.Setenv("GEMINI_API_KEY", "")
+	previousTransport := http.DefaultTransport
+	llmTransport := &integrationLLMTransport{base: previousTransport, responses: []string{
+		`{"intent":"create_expense","description":"Compra IA","amount":600,"type":"Parcelada","installments":3}`,
+		`{"intent":"create_expense","category_name":"Updated","payment_source":"Salario"}`,
+		`{"intent":"create_expense","day":30,"month":9,"year":2026}`,
+		`{"intent":"cancel_expense"}`,
+	}}
+	http.DefaultTransport = llmTransport
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
 	gin.SetMode(gin.TestMode)
 	password, err := bcrypt.GenerateFromPassword([]byte("test-password"), bcrypt.MinCost)
 	if err != nil {
@@ -212,6 +261,193 @@ func TestIntegrationAPI(t *testing.T) {
 		t.Fatalf("advance counted twice: %v", summary)
 	}
 	request("DELETE", expensePath, owner, "", 200)
+
+	// Seed persisted proposals, exercising confirmation without any LLM/network
+	// dependency. The server must revalidate even a malformed saved proposal.
+	var ownerUser auth.User
+	if err := db.Where("email = ?", "owner@example.test").First(&ownerUser).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedDraft := func(overrides map[string]any) uint {
+		t.Helper()
+		conversation := assistant.Conversation{UserID: ownerUser.ID, Title: "Cadastro de teste"}
+		if err := db.Create(&conversation).Error; err != nil {
+			t.Fatal(err)
+		}
+		draft := map[string]any{"status": "needs_confirmation", "draft_version": 2, "description": "Compra IA", "category_name": "Updated", "amount": 600, "payment_source": "Salario", "month": 9, "year": 2026, "day": 30, "type": "Parcelada", "installments": 3}
+		for key, value := range overrides {
+			draft[key] = value
+		}
+		encoded, err := json.Marshal(draft)
+		if err != nil {
+			t.Fatal(err)
+		}
+		message := assistant.Message{ConversationID: conversation.ID, UserID: ownerUser.ID, Role: "assistant", ToolCall: "create_expense", ToolResult: string(encoded)}
+		if err := db.Create(&message).Error; err != nil {
+			t.Fatal(err)
+		}
+		return conversation.ID
+	}
+	confirmDraft := func(conversationID uint, token string, status int) map[string]any {
+		return request("POST", "/api/assistant/chat", token, fmt.Sprintf(`{"conversation_id":%d,"message":"sim"}`, conversationID), status)
+	}
+	countExpenses := func(description string) int64 {
+		t.Helper()
+		var count int64
+		if err := db.Model(&expenses.Expense{}).Where("user_id = ? AND description = ?", ownerUser.ID, description).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	for _, invalid := range []map[string]any{
+		{"description": nil}, {"description": "  "}, {"category_name": nil},
+		{"category_name": "Nao existe"}, {"payment_source": ""}, {"amount": -1},
+		{"day": 31}, {"draft_version": 1},
+	} {
+		r := confirmDraft(seedDraft(invalid), owner, 200)
+		if r["tool_result"].(map[string]any)["status"] != "needs_information" {
+			t.Fatalf("invalid proposal accepted: %v => %v", invalid, r)
+		}
+	}
+	if countExpenses("Compra IA") != 0 {
+		t.Fatal("incomplete proposals wrote expenses")
+	}
+	foreignCategory := request("POST", "/api/categories/", other, `{"name":"Categoria privada"}`, 201)
+	foreignCatID := int(foreignCategory["data"].(map[string]any)["id"].(float64))
+	r := confirmDraft(seedDraft(map[string]any{"category_name": "Categoria privada"}), owner, 200)
+	if r["tool_result"].(map[string]any)["status"] != "needs_information" {
+		t.Fatal("foreign category accepted")
+	}
+	request("POST", "/api/expenses/", owner, fmt.Sprintf(`{"description":"Foreign","amount":10,"category_id":%d,"date":"2026-09-20T12:00:00Z","type":"Unica","payment_source":"Salario"}`, foreignCatID), 400)
+	first := request("POST", "/api/assistant/chat", owner, `{"message":"Comprei algo de 600 reais e parcelei em 3 vezes"}`, 200)
+	conversationID := uint(first["conversation_id"].(float64))
+	if first["tool_result"].(map[string]any)["status"] != "needs_information" || countExpenses("Compra IA") != 0 {
+		t.Fatalf("incomplete purchase persisted: %v", first)
+	}
+	second := request("POST", "/api/assistant/chat", owner, fmt.Sprintf(`{"conversation_id":%d,"message":"Categoria Updated, pago com Salario"}`, conversationID), 200)
+	if second["tool_result"].(map[string]any)["status"] != "needs_information" || countExpenses("Compra IA") != 0 {
+		t.Fatalf("date was invented: %v", second)
+	}
+	third := request("POST", "/api/assistant/chat", owner, fmt.Sprintf(`{"conversation_id":%d,"message":"30 de setembro de 2026"}`, conversationID), 200)
+	if third["tool_result"].(map[string]any)["status"] != "needs_confirmation" || countExpenses("Compra IA") != 0 {
+		t.Fatalf("complete draft was not preserved or wrote without confirmation: %v", third)
+	}
+	confirmDraft(conversationID, other, 404)
+	r = confirmDraft(conversationID, owner, 200)
+	if r["tool_result"].(map[string]any)["status"] != "created" || countExpenses("Compra IA") != 3 {
+		t.Fatalf("complete proposal failed: %v", r)
+	}
+	confirmDraft(conversationID, owner, 200)
+	if countExpenses("Compra IA") != 3 {
+		t.Fatal("confirmation replay duplicated expenses")
+	}
+	for _, mode := range []string{"scheduled", "effective"} {
+		list := request("GET", "/api/expenses/?month=9&year=2026&period_mode="+mode, owner, "", 200)
+		items := list["expenses"].([]any)
+		if len(items) != 1 {
+			t.Fatalf("unexpected period: %v", list)
+		}
+		item := items[0].(map[string]any)
+		if item["description"] != "Compra IA" || item["category_id"] != float64(catID) || item["amount"] != float64(200) || item["type"] != "Parcelada" {
+			t.Fatalf("invalid expense JSON: %v", item)
+		}
+		if item["payment_splits"].([]any)[0].(map[string]any)["amount"] != float64(200) {
+			t.Fatal("payment splits diverge from installment")
+		}
+		path := fmt.Sprintf("/api/expenses/%.0f", item["id"])
+		request("PATCH", path, owner, `{"description":null}`, 400)
+		request("PATCH", path, owner, `{"description":" "}`, 400)
+		request("PATCH", path, owner, `{"category_id":0}`, 400)
+		request("PATCH", path, owner, fmt.Sprintf(`{"category_id":%d}`, foreignCatID), 400)
+	}
+	summary = request("GET", "/api/reports/summary?month=9&year=2026", owner, "", 200)
+	if summary["total_expense"] != float64(200) {
+		t.Fatalf("purchase total was repeated instead of divided: %v", summary)
+	}
+	// Force failure on the second installment and verify all writes roll back.
+	if err := db.Exec(`ALTER TABLE expenses ADD CONSTRAINT harness_fail_second CHECK (description <> 'Rollback' OR current_install < 2)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	confirmDraft(seedDraft(map[string]any{"description": "Rollback"}), owner, 500)
+	if countExpenses("Rollback") != 0 {
+		t.Fatal("partial installment series survived rollback")
+	}
+	if err := db.Exec(`ALTER TABLE expenses DROP CONSTRAINT harness_fail_second`).Error; err != nil {
+		t.Fatal(err)
+	}
+	cancelID := seedDraft(map[string]any{"description": "Cancelled"})
+	request("POST", "/api/assistant/chat", owner, fmt.Sprintf(`{"conversation_id":%d,"message":"nao pode cadastrar"}`, cancelID), 200)
+	confirmDraft(cancelID, owner, 200)
+	if countExpenses("Cancelled") != 0 {
+		t.Fatal("negative confirmation or cancelled draft wrote expenses")
+	}
+	concurrentID := seedDraft(map[string]any{"description": "Concurrent"})
+	var confirmations sync.WaitGroup
+	errors := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		confirmations.Add(1)
+		go func() {
+			defer confirmations.Done()
+			req, err := http.NewRequest("POST", server.URL+"/api/assistant/chat", strings.NewReader(fmt.Sprintf(`{"conversation_id":%d,"message":"sim"}`, concurrentID)))
+			if err != nil {
+				errors <- err
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+owner)
+			response, err := client.Do(req)
+			if err != nil {
+				errors <- err
+				return
+			}
+			defer response.Body.Close()
+			if response.StatusCode != 200 {
+				errors <- fmt.Errorf("concurrent confirmation status=%d", response.StatusCode)
+			}
+		}()
+	}
+	confirmations.Wait()
+	close(errors)
+	for err := range errors {
+		t.Error(err)
+	}
+	if countExpenses("Concurrent") != 3 {
+		t.Fatal("concurrent confirmations duplicated the purchase")
+	}
+	centsID := seedDraft(map[string]any{"description": "Cents", "amount": 100, "month": 1, "year": 2027, "day": 31})
+	confirmDraft(centsID, owner, 200)
+	var centsItems []expenses.Expense
+	if err := db.Preload("PaymentSplits").Where("description = ? AND user_id = ?", "Cents", ownerUser.ID).Order("current_install").Find(&centsItems).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(centsItems) != 3 {
+		t.Fatalf("wrong installment count: %d", len(centsItems))
+	}
+	for i, item := range centsItems {
+		if item.Month != i+1 || item.Date.Day() != []int{31, 28, 31}[i] || item.Amount != []float64{33.34, 33.33, 33.33}[i] || len(item.PaymentSplits) != 1 || item.PaymentSplits[0].Amount != item.Amount {
+			t.Fatalf("incorrect monthly allocation: %+v", item)
+		}
+	}
+	legacy := expenses.Expense{UserID: ownerUser.ID, Description: "Legacy", Amount: 1, Month: 12, Year: 2028, Type: "Única", PaymentSource: "Salario", Date: time.Date(2028, 12, 1, 12, 0, 0, 0, time.UTC)}
+	if err := db.Create(&legacy).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("UPDATE expenses SET description = NULL, category_id = NULL WHERE id = ?", legacy.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"scheduled", "effective"} {
+		list := request("GET", "/api/expenses/?month=12&year=2028&period_mode="+mode, owner, "", 200)
+		item := list["expenses"].([]any)[0].(map[string]any)
+		if item["description"] != "" || item["category_id"] != float64(0) {
+			t.Fatalf("legacy fields violated JSON types: %v", item)
+		}
+	}
+	// Remove the generated series via public endpoints before the existing
+	// category deletion checks. No production database is used by this test.
+	all := request("GET", "/api/expenses/", owner, "", 200)
+	for _, item := range all["expenses"].([]any) {
+		request("DELETE", fmt.Sprintf("/api/expenses/%.0f", item.(map[string]any)["id"]), owner, "", 200)
+	}
 	request("DELETE", catPath, owner, "", 200)
 	if err := db.Model(&auth.User{}).Where("email = ?", "owner@example.test").Update("access_blocked", true).Error; err != nil {
 		t.Fatal(err)

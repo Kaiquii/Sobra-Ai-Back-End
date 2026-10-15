@@ -55,6 +55,55 @@ O fallback para o Gemini deve preservar o mesmo contrato: interpretar a mensagem
 - Garantir que o usuario so acesse os proprios dados.
 - Salvar conversas e mensagens.
 
+## Cadastro de despesas e campos pendentes
+
+O cadastro pelo chat e um rascunho persistido na conversa. O servidor valida os
+campos independentemente do prompt e devolve `tool_call=create_expense` com:
+
+- `status=needs_information` e `missing_fields` quando faltam dados ou ha valores
+  invalidos. A resposta pergunta quais campos precisam ser informados/corrigidos;
+  nao grava despesas nem cria categorias.
+- `status=needs_confirmation` quando os dados estao completos. A resposta apresenta
+  descricao, categoria, fonte, tipo, primeira data e valores antes de pedir confirmacao.
+- `status=created` somente depois de confirmar e concluir a transacao.
+- `status=cancelled` quando o usuario rejeita/cancela o rascunho.
+
+Campos obrigatorios: descricao nao branca, categoria existente escolhida pelo usuario,
+fonte valida (`Salario`, `Adiantamento` ou `Renda Extra`), valor positivo em centavos,
+data completa valida e tipo (`Unica`, `Parcelada` ou `Fixa`). Parceladas exigem de 2 a
+120 parcelas. O servidor nao assume dia 1, data atual, categoria, descricao ou fonte.
+Datas relativas explicitamente informadas podem ser interpretadas pela IA.
+Uma categoria desconhecida ou de outro usuario exige escolher uma categoria propria;
+o assistente nao cria categorias automaticamente.
+
+Respostas seguintes complementam o rascunho da mesma `conversation_id`. O modelo
+retorna somente os campos alterados e o servidor preserva os demais. Uma nova despesa
+independente usa `new_expense=true` na intencao para nao herdar os dados anteriores.
+O `confirm` produzido pelo modelo nunca autoriza uma escrita. A confirmacao aceita
+apenas afirmacoes isoladas, como `sim` ou `pode cadastrar`; uma frase com negacao ou
+correcao nao confirma automaticamente. Confirmar um rascunho incompleto apenas repete
+os campos pendentes. Correcoes em uma proposta completa exigem nova confirmacao.
+
+Em despesas parceladas, `amount` no rascunho e o **total da compra**. R$ 600 em 3 vezes
+gera tres despesas de R$ 200. O Go distribui centavos restantes nas primeiras parcelas:
+R$ 100 em 3 vezes gera R$ 33,34, R$ 33,33 e R$ 33,33. Datas mensais preservam o dia
+informado ou o ultimo dia do mes quando necessario (31/jan -> 28/fev -> 31/mar).
+Cada parcela tem sua divisao de pagamento persistida e a soma permanece igual ao total.
+Para fixa, o valor informado e mensal e sao gerados 120 lancamentos, conforme o cadastro
+manual. O cadastro manual continua recebendo o valor **por parcela**; seu contrato de
+`amount` nao mudou.
+
+Propostas pendentes antigas exigem informar o valor novamente antes de confirmar,
+porque o significado de `amount` em parcelas mudou. Despesas ja gravadas nao sao
+alteradas. A confirmacao, as parcelas, as divisoes e a resposta da conversa sao gravadas
+em uma transacao; uma falha reverte tudo e repetir a confirmacao nao duplica a compra.
+
+As rotas manuais de despesas tambem rejeitam descricao vazia e categoria ausente,
+inexistente ou de outro usuario nos novos cadastros. O PATCH valida esses campos quando
+enviados; atualizacoes de outros campos e a leitura de registros legados continuam
+permitidas. `GET /api/expenses`, inclusive `period_mode=effective`, preserva os nomes e
+tipos JSON de `description` (string) e `category_id` (numero), sem reparar registros antigos.
+
 ## Regra para novas features
 
 Antes de adicionar qualquer condicao baseada em frase, perguntar:

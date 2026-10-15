@@ -4,6 +4,9 @@ import (
 	"Sobra_Ai_Back-end/internal/database"
 	"encoding/json"
 	"strings"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func getOrCreateConversation(userID uint, conversationID uint, firstMessage string) (Conversation, error) {
@@ -30,6 +33,10 @@ func getOrCreateConversation(userID uint, conversationID uint, firstMessage stri
 }
 
 func saveMessage(userID uint, conversationID uint, role string, content string, toolCall string, toolResult any) error {
+	return saveMessageDB(database.DB, userID, conversationID, role, content, toolCall, toolResult)
+}
+
+func saveMessageDB(db *gorm.DB, userID uint, conversationID uint, role string, content string, toolCall string, toolResult any) error {
 	var toolResultJSON string
 	if toolResult != nil {
 		resultBytes, err := json.Marshal(toolResult)
@@ -48,11 +55,11 @@ func saveMessage(userID uint, conversationID uint, role string, content string, 
 		ToolResult:     toolResultJSON,
 	}
 
-	if err := database.DB.Create(&message).Error; err != nil {
+	if err := db.Create(&message).Error; err != nil {
 		return err
 	}
 
-	return database.DB.Model(&Conversation{}).
+	return db.Model(&Conversation{}).
 		Where("id = ? AND user_id = ?", conversationID, userID).
 		Update("updated_at", message.CreatedAt).Error
 }
@@ -107,25 +114,65 @@ func buildConversationFromMessages(messages []Message, currentMessage string) []
 }
 
 func lastPendingCreateExpense(userID uint, conversationID uint) (map[string]any, bool) {
+	result, ok, _ := pendingCreateExpenseDB(database.DB, userID, conversationID)
+	return result, ok
+}
+
+func pendingCreateExpenseDB(db *gorm.DB, userID uint, conversationID uint) (map[string]any, bool, error) {
 	var messages []Message
-	err := database.DB.
+	err := db.
 		Where("conversation_id = ? AND user_id = ? AND role = ? AND tool_call = ?", conversationID, userID, "assistant", "create_expense").
-		Order("created_at desc").
+		Order("id desc").
 		Limit(1).
 		Find(&messages).Error
-	if err != nil || len(messages) == 0 || messages[0].ToolResult == "" {
-		return nil, false
+	if err != nil {
+		return nil, false, err
+	}
+	if len(messages) == 0 || messages[0].ToolResult == "" {
+		return nil, false, nil
 	}
 
 	var result map[string]any
 	if err := json.Unmarshal([]byte(messages[0].ToolResult), &result); err != nil {
-		return nil, false
+		return nil, false, err
 	}
 
 	status, _ := result["status"].(string)
-	if status != "needs_confirmation" {
-		return nil, false
+	if status != "needs_confirmation" && status != "needs_information" {
+		return nil, false, nil
 	}
+	if version, _ := intArg(result, "draft_version"); version != expenseDraftVersion {
+		// Legacy amount meant per-installment value; ask for the total again.
+		result["amount"] = 0
+		result["status"] = "needs_information"
+	}
+	return result, true, nil
+}
 
-	return result, true
+// Serialize confirmations and consume the proposal in the same transaction as
+// the expenses and reply. Concurrent/retried confirmations cannot create twice.
+func confirmPendingExpense(userID, conversationID uint, message string) (map[string]any, bool, error) {
+	var result map[string]any
+	handled := false
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		var conversation Conversation
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ?", conversationID, userID).First(&conversation).Error; err != nil {
+			return err
+		}
+		pending, ok, err := pendingCreateExpenseDB(tx, userID, conversationID)
+		if err != nil || !ok {
+			return err
+		}
+		handled = true
+		pending["confirm"] = pending["status"] == "needs_confirmation"
+		result, err = createExpenseFromToolDB(tx, userID, pending)
+		if err != nil {
+			return err
+		}
+		if err := saveMessageDB(tx, userID, conversationID, "user", message, "", nil); err != nil {
+			return err
+		}
+		return saveMessageDB(tx, userID, conversationID, "assistant", localToolReply("create_expense", result), "create_expense", result)
+	})
+	return result, handled, err
 }

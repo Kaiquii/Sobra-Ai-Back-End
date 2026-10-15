@@ -1,8 +1,10 @@
 package expenses
 
 import (
+	"Sobra_Ai_Back-end/internal/categories"
 	"Sobra_Ai_Back-end/internal/database"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -87,6 +89,20 @@ func createExpense(c *gin.Context) {
 	var req CreateExpenseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Dados inválidos: " + err.Error()})
+		return
+	}
+	req.Description = strings.TrimSpace(req.Description)
+	if req.Description == "" || req.CategoryID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Descricao e categoria existente sao obrigatorias"})
+		return
+	}
+	var category categories.Category
+	if err := database.DB.Where("id = ? AND user_id = ?", req.CategoryID, userID).First(&category).Error; err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": "Nao foi possivel validar a categoria do usuario"})
 		return
 	}
 
@@ -410,8 +426,38 @@ func updateExpense(c *gin.Context) {
 		return
 	}
 	for key := range updateData {
+		switch key {
+		case "description", "category_id", "amount", "notes", "payment_source", "payment_splits", "date", "type", "installments", "update_future", "is_paid", "paid_at", "month", "year", "series_id", "current_install":
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Campo nao permitido na edicao: " + key})
+			return
+		}
 		if strings.EqualFold(key, "is_advanced") || strings.EqualFold(key, "advanced_at") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Use a rota advance-status para alterar o adiantamento"})
+			return
+		}
+	}
+	if value, exists := updateData["description"]; exists {
+		description, ok := value.(string)
+		if !ok || strings.TrimSpace(description) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Descricao nao pode ser vazia"})
+			return
+		}
+		updateData["description"] = strings.TrimSpace(description)
+	}
+	if value, exists := updateData["category_id"]; exists {
+		categoryID, ok := value.(float64)
+		if !ok || categoryID <= 0 || categoryID > 1e9 || categoryID != float64(uint(categoryID)) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Categoria invalida"})
+			return
+		}
+		var category categories.Category
+		if err := database.DB.Where("id = ? AND user_id = ?", uint(categoryID), userID).First(&category).Error; err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				status = http.StatusBadRequest
+			}
+			c.JSON(status, gin.H{"error": "Nao foi possivel validar a categoria do usuario"})
 			return
 		}
 	}
