@@ -21,7 +21,12 @@ O harness completo valida formatacao, executa `go vet`, roda todos os testes sem
 - `.artifacts/test/coverage.out`: perfil de cobertura.
 - `.artifacts/test/coverage.txt`: resumo por funcao.
 
-No CI, a mesma suite tambem passa pelo detector de condicoes de corrida do Go.
+O GitHub Actions esta desativado neste projeto; as validacoes sao executadas localmente.
+Para executar tambem o detector de condicoes de corrida em um ambiente compativel:
+
+```bash
+go test -race ./... -count=1 -timeout=3m
+```
 
 ## Iteracao Rapida
 

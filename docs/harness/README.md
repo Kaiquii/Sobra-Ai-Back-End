@@ -49,8 +49,8 @@ Teste do proprio orquestrador: `go test ./cmd/harness -count=1 -v`. Esses testes
 um executor simulado para verificar falhas e transicoes sem gastar chamadas de IA;
 nao devem ser confundidos com uma execucao autenticada do modelo.
 
-O CI executa a suite e o detector de corrida em Linux, incluindo integracao com
-PostgreSQL real. Localmente use `./scripts/test.ps1 -Integration` ou
+O projeto nao possui workflow de CI no GitHub Actions. As validacoes sao locais.
+Para incluir integracao com PostgreSQL real, use `./scripts/test.ps1 -Integration` ou
 `sh scripts/test.sh --integration`. Docker local em modo Linux deve estar ativo.
 O teste cria um container postgres:15-alpine com nome unico, armazenamento temporario
 e porta local aleatoria, e remove esse container ao terminar. Nunca le DB_DSN ou .env.
