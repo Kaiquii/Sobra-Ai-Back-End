@@ -2,6 +2,8 @@ package incomes
 
 import (
 	"Sobra_Ai_Back-end/internal/database"
+	"gorm.io/gorm"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,7 +44,7 @@ func createIncome(c *gin.Context) {
 
 	source := normalizeIncomeSource(req.Source)
 	if source == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Fonte inválida. Use Salário, Adiantamento ou Renda Extra."})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Fonte inválida. Use Salário, Adiantamento, Renda Extra, VA ou VR."})
 		return
 	}
 
@@ -70,25 +72,31 @@ func createIncome(c *gin.Context) {
 	currentMonth := req.Month
 	currentYear := req.Year
 
-	for i := 0; i < loopCount; i++ {
-		newIncome := Income{
-			UserID: userID,
-			Source: source,
-			Amount: req.Amount,
-			Month:  currentMonth,
-			Year:   currentYear,
-		}
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		for i := 0; i < loopCount; i++ {
+			newIncome := Income{
+				UserID: userID,
+				Source: source,
+				Amount: req.Amount,
+				Month:  currentMonth,
+				Year:   currentYear,
+			}
 
-		if err := database.DB.Create(&newIncome).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao salvar renda"})
-			return
-		}
+			if err := tx.Create(&newIncome).Error; err != nil {
+				return err
+			}
 
-		currentMonth++
-		if currentMonth > 12 {
-			currentMonth = 1
-			currentYear++
+			currentMonth++
+			if currentMonth > 12 {
+				currentMonth = 1
+				currentYear++
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao salvar renda"})
+		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"message": "Renda(s) cadastrada(s) com sucesso!"})
@@ -149,22 +157,54 @@ func updateIncome(c *gin.Context) {
 
 	updateFuture := false
 	if val, exists := updateData["update_future"]; exists {
-		if boolVal, ok := val.(bool); ok {
-			updateFuture = boolVal
+		boolVal, valid := val.(bool)
+		if !valid {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "update_future deve ser booleano"})
+			return
 		}
+		updateFuture = boolVal
 		delete(updateData, "update_future")
 	}
 
-	if err := database.DB.Model(&income).Updates(updateData).Error; err != nil {
+	for key, value := range updateData {
+		switch key {
+		case "amount":
+			amount, valid := value.(float64)
+			if !valid || amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Valor da renda deve ser maior que zero"})
+				return
+			}
+		case "source":
+			text, valid := value.(string)
+			source := normalizeIncomeSource(text)
+			if !valid || source == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Fonte inválida"})
+				return
+			}
+			updateData[key] = source
+		case "month", "year":
+			number, valid := value.(float64)
+			if !valid || number != math.Trunc(number) || (key == "month" && (number < 1 || number > 12)) || (key == "year" && number < 2000) || updateFuture {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Período inválido; não altere month/year com update_future"})
+				return
+			}
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Campo de renda não permitido: " + key})
+			return
+		}
+	}
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		query := tx.Model(&Income{}).Where("user_id = ?", userID)
+		if updateFuture {
+			query = query.Where("id = ? OR (source = ? AND (year > ? OR (year = ? AND month > ?)))", income.ID, income.Source, income.Year, income.Year, income.Month)
+		} else {
+			query = query.Where("id = ?", income.ID)
+		}
+		return query.Updates(updateData).Error
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao atualizar renda"})
 		return
-	}
-
-	if updateFuture {
-		database.DB.Model(&Income{}).
-			Where("user_id = ? AND source = ? AND (year > ? OR (year = ? AND month > ?))",
-				userID, income.Source, income.Year, income.Year, income.Month).
-			Updates(updateData)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Renda(s) atualizada(s) com sucesso!"})
@@ -217,6 +257,10 @@ func normalizeIncomeSource(source string) string {
 		return "Adiantamento"
 	case "renda extra", "renda_extra":
 		return "Renda Extra"
+	case "va", "vale alimentação", "vale alimentacao", "vale-alimentação", "vale-alimentacao", "vale_alimentacao":
+		return "VA"
+	case "vr", "vale refeição", "vale refeicao", "vale-refeição", "vale-refeicao", "vale_refeicao":
+		return "VR"
 	default:
 		return ""
 	}

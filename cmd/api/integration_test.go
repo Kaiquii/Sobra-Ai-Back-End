@@ -442,6 +442,14 @@ func TestIntegrationAPI(t *testing.T) {
 			t.Fatalf("legacy fields violated JSON types: %v", item)
 		}
 	}
+	for _, source := range []string{"VA", "VR"} {
+		proposal := seedDraft(map[string]any{"description": "Benefit assistant " + source, "payment_source": source, "type": "Unica", "installments": 1, "year": 2035})
+		result := confirmDraft(proposal, owner, 200)
+		if result["tool_result"].(map[string]any)["status"] != "created" || countExpenses("Benefit assistant "+source) != 1 {
+			t.Fatalf("assistant rejected benefit %s: %v", source, result)
+		}
+	}
+	testBenefitsLifecycle(t, db, request, owner, other, catID)
 	// Remove the generated series via public endpoints before the existing
 	// category deletion checks. No production database is used by this test.
 	all := request("GET", "/api/expenses/", owner, "", 200)

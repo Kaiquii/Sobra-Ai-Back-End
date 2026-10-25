@@ -69,7 +69,7 @@ campos independentemente do prompt e devolve `tool_call=create_expense` com:
 - `status=cancelled` quando o usuario rejeita/cancela o rascunho.
 
 Campos obrigatorios: descricao nao branca, categoria existente escolhida pelo usuario,
-fonte valida (`Salario`, `Adiantamento` ou `Renda Extra`), valor positivo em centavos,
+fonte valida (`Salario`, `Adiantamento`, `Renda Extra`, `VA` ou `VR`), valor positivo em centavos,
 data completa valida e tipo (`Unica`, `Parcelada` ou `Fixa`). Parceladas exigem de 2 a
 120 parcelas. O servidor nao assume dia 1, data atual, categoria, descricao ou fonte.
 Datas relativas explicitamente informadas podem ser interpretadas pela IA.

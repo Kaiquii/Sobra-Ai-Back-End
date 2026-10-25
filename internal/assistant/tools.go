@@ -37,7 +37,7 @@ func toolDeclarations() []FunctionDeclaration {
 				"month":          integerSchema("Mes numerico entre 1 e 12. Opcional."),
 				"year":           integerSchema("Ano com quatro digitos. Opcional."),
 				"category_name":  stringSchema("Nome da categoria para filtrar. Opcional."),
-				"payment_source": stringSchema("Fonte usada no pagamento: Salario, Adiantamento ou Renda Extra. Opcional."),
+				"payment_source": stringSchema("Fonte usada no pagamento: Salario, Adiantamento, Renda Extra, VA ou VR. Opcional."),
 				"limit":          integerSchema("Quantidade maxima de despesas para retornar. Use no maximo 20."),
 			}, []string{}),
 		},
@@ -48,7 +48,7 @@ func toolDeclarations() []FunctionDeclaration {
 				"description":    stringSchema("Descricao curta da despesa, por exemplo Pao ou Uber."),
 				"amount":         numberSchema("Valor TOTAL da compra em reais. Para parceladas, o Go divide esse total; nao envie o valor de uma parcela."),
 				"category_name":  stringSchema("Nome exato de uma categoria existente do usuario. Se ausente, pergunte antes de confirmar."),
-				"payment_source": enumSchema("Fonte usada no pagamento.", []string{"Salario", "Adiantamento", "Renda Extra"}),
+				"payment_source": enumSchema("Fonte usada no pagamento.", []string{"Salario", "Adiantamento", "Renda Extra", "VA", "VR"}),
 				"month":          integerSchema("Mes numerico entre 1 e 12."),
 				"year":           integerSchema("Ano com quatro digitos."),
 				"day":            integerSchema("Dia informado pelo usuario. Se ausente, pergunte."),
@@ -133,6 +133,7 @@ func getMonthlySummary(userID uint, month int, year int) (map[string]any, error)
 
 	var totalIncome, totalExpense float64
 	var totalSalary, totalAdiantamento, totalRendaExtra float64
+	var totalVA, totalVR, spentVA, spentVR float64
 	var totalSpentSalary, totalSpentAdiantamento, totalSpentRendaExtra float64
 
 	for _, income := range incomesList {
@@ -144,6 +145,10 @@ func getMonthlySummary(userID uint, month int, year int) (map[string]any, error)
 			totalAdiantamento += income.Amount
 		case "renda_extra":
 			totalRendaExtra += income.Amount
+		case "va":
+			totalVA += income.Amount
+		case "vr":
+			totalVR += income.Amount
 		}
 	}
 
@@ -157,6 +162,10 @@ func getMonthlySummary(userID uint, month int, year int) (map[string]any, error)
 				totalSpentAdiantamento += split.Amount
 			case "renda_extra":
 				totalSpentRendaExtra += split.Amount
+			case "va":
+				spentVA += split.Amount
+			case "vr":
+				spentVR += split.Amount
 			}
 		}
 	}
@@ -176,6 +185,12 @@ func getMonthlySummary(userID uint, month int, year int) (map[string]any, error)
 		"restante_salario":         roundMoney(totalSalary - totalSpentSalary),
 		"restante_adiantamento":    roundMoney(totalAdiantamento - totalSpentAdiantamento),
 		"restante_renda_extra":     roundMoney(totalRendaExtra - totalSpentRendaExtra),
+		"va":                       roundMoney(totalVA),
+		"vr":                       roundMoney(totalVR),
+		"total_gasto_va":           roundMoney(spentVA),
+		"total_gasto_vr":           roundMoney(spentVR),
+		"restante_va":              roundMoney(totalVA - spentVA),
+		"restante_vr":              roundMoney(totalVR - spentVR),
 	}, nil
 }
 
@@ -291,6 +306,10 @@ func normalizeMoneySource(source string) string {
 		return "adiantamento"
 	case "renda extra", "renda_extra":
 		return "renda_extra"
+	case "va", "vale alimentação", "vale alimentacao", "vale-alimentação", "vale-alimentacao", "vale_alimentacao":
+		return "va"
+	case "vr", "vale refeição", "vale refeicao", "vale-refeição", "vale-refeicao", "vale_refeicao":
+		return "vr"
 	default:
 		return ""
 	}
@@ -304,6 +323,10 @@ func normalizePaymentSource(source string) string {
 		return "Adiantamento"
 	case "renda extra", "renda_extra":
 		return "Renda Extra"
+	case "va", "vale alimentação", "vale alimentacao", "vale-alimentação", "vale-alimentacao", "vale_alimentacao":
+		return "VA"
+	case "vr", "vale refeição", "vale refeicao", "vale-refeição", "vale-refeicao", "vale_refeicao":
+		return "VR"
 	default:
 		return source
 	}
@@ -318,6 +341,10 @@ func paymentSourceVariants(source string) []string {
 		return []string{"adiantamento"}
 	case "renda_extra":
 		return []string{"renda extra", "renda_extra"}
+	case "va":
+		return []string{"va", "vale alimentação", "vale alimentacao", "vale-alimentação", "vale-alimentacao", "vale_alimentacao"}
+	case "vr":
+		return []string{"vr", "vale refeição", "vale refeicao", "vale-refeição", "vale-refeicao", "vale_refeicao"}
 	default:
 		return []string{strings.ToLower(strings.TrimSpace(source))}
 	}

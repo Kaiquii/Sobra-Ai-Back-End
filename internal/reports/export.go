@@ -49,18 +49,19 @@ type exportOptions struct {
 }
 
 type monthlyExportSummary struct {
-	TotalIncome          float64
-	TotalExpense         float64
-	Balance              float64
-	Salary               float64
-	Advance              float64
-	ExtraIncome          float64
-	SpentSalary          float64
-	SpentAdvance         float64
-	SpentExtraIncome     float64
-	RemainingSalary      float64
-	RemainingAdvance     float64
-	RemainingExtraIncome float64
+	VA, VR, SpentVA, SpentVR, RemainingVA, RemainingVR float64
+	TotalIncome                                        float64
+	TotalExpense                                       float64
+	Balance                                            float64
+	Salary                                             float64
+	Advance                                            float64
+	ExtraIncome                                        float64
+	SpentSalary                                        float64
+	SpentAdvance                                       float64
+	SpentExtraIncome                                   float64
+	RemainingSalary                                    float64
+	RemainingAdvance                                   float64
+	RemainingExtraIncome                               float64
 }
 
 type exportDataset struct {
@@ -273,6 +274,10 @@ func buildMonthlyExportSummary(incomeItems []incomes.Income, expenseItems []expe
 			result.Advance += income.Amount
 		case "renda_extra":
 			result.ExtraIncome += income.Amount
+		case "va":
+			result.VA += income.Amount
+		case "vr":
+			result.VR += income.Amount
 		}
 	}
 	for _, expense := range expenseItems {
@@ -285,6 +290,10 @@ func buildMonthlyExportSummary(incomeItems []incomes.Income, expenseItems []expe
 				result.SpentAdvance += split.Amount
 			case "renda_extra":
 				result.SpentExtraIncome += split.Amount
+			case "va":
+				result.SpentVA += split.Amount
+			case "vr":
+				result.SpentVR += split.Amount
 			}
 		}
 	}
@@ -292,6 +301,8 @@ func buildMonthlyExportSummary(incomeItems []incomes.Income, expenseItems []expe
 	result.RemainingSalary = result.Salary - result.SpentSalary
 	result.RemainingAdvance = result.Advance - result.SpentAdvance
 	result.RemainingExtraIncome = result.ExtraIncome - result.SpentExtraIncome
+	result.RemainingVA = result.VA - result.SpentVA
+	result.RemainingVR = result.VR - result.SpentVR
 	return result
 }
 
@@ -457,6 +468,12 @@ func summaryRows(summary monthlyExportSummary) [][]string {
 		{"Restante Salario", formatDecimal(summary.RemainingSalary)},
 		{"Restante Adiantamento", formatDecimal(summary.RemainingAdvance)},
 		{"Restante Renda Extra", formatDecimal(summary.RemainingExtraIncome)},
+		{"VA", formatDecimal(summary.VA)},
+		{"VR", formatDecimal(summary.VR)},
+		{"Gasto VA", formatDecimal(summary.SpentVA)},
+		{"Gasto VR", formatDecimal(summary.SpentVR)},
+		{"Restante VA", formatDecimal(summary.RemainingVA)},
+		{"Restante VR", formatDecimal(summary.RemainingVR)},
 	}
 }
 

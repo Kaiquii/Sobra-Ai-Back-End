@@ -37,6 +37,10 @@ func normalizeMoneySource(source string) string {
 		return "adiantamento"
 	case "renda extra", "renda_extra":
 		return "renda_extra"
+	case "va", "vale alimentação", "vale alimentacao", "vale-alimentação", "vale-alimentacao", "vale_alimentacao":
+		return "va"
+	case "vr", "vale refeição", "vale refeicao", "vale-refeição", "vale-refeicao", "vale_refeicao":
+		return "vr"
 	default:
 		return ""
 	}
@@ -87,6 +91,7 @@ func getMonthlySummary(c *gin.Context) {
 	var totalSalary float64
 	var totalAdiantamento float64
 	var totalRendaExtra float64
+	var totalVA, totalVR, spentVA, spentVR float64
 
 	var totalSpentSalary float64
 	var totalSpentAdiantamento float64
@@ -102,6 +107,10 @@ func getMonthlySummary(c *gin.Context) {
 			totalAdiantamento += income.Amount
 		case "renda_extra":
 			totalRendaExtra += income.Amount
+		case "va":
+			totalVA += income.Amount
+		case "vr":
+			totalVR += income.Amount
 		}
 	}
 
@@ -116,6 +125,10 @@ func getMonthlySummary(c *gin.Context) {
 				totalSpentAdiantamento += split.Amount
 			case "renda_extra":
 				totalSpentRendaExtra += split.Amount
+			case "va":
+				spentVA += split.Amount
+			case "vr":
+				spentVR += split.Amount
 			}
 		}
 	}
@@ -141,6 +154,12 @@ func getMonthlySummary(c *gin.Context) {
 		"restante_salario":         restanteSalario,
 		"restante_adiantamento":    restanteAdiantamento,
 		"restante_renda_extra":     restanteRendaExtra,
+		"va":                       totalVA,
+		"vr":                       totalVR,
+		"total_gasto_va":           spentVA,
+		"total_gasto_vr":           spentVR,
+		"restante_va":              totalVA - spentVA,
+		"restante_vr":              totalVR - spentVR,
 	})
 }
 
@@ -739,6 +758,10 @@ func paymentSourceLabel(source string) string {
 		return "Adiantamento"
 	case "renda_extra":
 		return "Renda Extra"
+	case "va":
+		return "VA"
+	case "vr":
+		return "VR"
 	default:
 		source = strings.TrimSpace(source)
 		if source == "" {

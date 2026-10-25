@@ -369,6 +369,12 @@ func xlsxSummarySection(summary monthlyExportSummary) xlsxSection {
 		{{"Restante Salário", xlsxText}, {roundMoney(summary.RemainingSalary), xlsxCurrency}},
 		{{"Restante Adiantamento", xlsxText}, {roundMoney(summary.RemainingAdvance), xlsxCurrency}},
 		{{"Restante Renda Extra", xlsxText}, {roundMoney(summary.RemainingExtraIncome), xlsxCurrency}},
+		{{"VA", xlsxText}, {roundMoney(summary.VA), xlsxCurrency}},
+		{{"VR", xlsxText}, {roundMoney(summary.VR), xlsxCurrency}},
+		{{"Gasto VA", xlsxText}, {roundMoney(summary.SpentVA), xlsxCurrency}},
+		{{"Gasto VR", xlsxText}, {roundMoney(summary.SpentVR), xlsxCurrency}},
+		{{"Restante VA", xlsxText}, {roundMoney(summary.RemainingVA), xlsxCurrency}},
+		{{"Restante VR", xlsxText}, {roundMoney(summary.RemainingVR), xlsxCurrency}},
 	}}
 }
 

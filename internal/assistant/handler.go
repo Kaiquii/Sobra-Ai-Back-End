@@ -387,7 +387,7 @@ func localToolReply(toolName string, toolResult any) string {
 		if status == "needs_information" {
 			labels := map[string]string{
 				"description": "descricao da despesa", "category_name": "categoria existente escolhida por voce",
-				"payment_source": "fonte de pagamento (Salario, Adiantamento ou Renda Extra)",
+				"payment_source": "fonte de pagamento (Salario, Adiantamento, Renda Extra, VA ou VR)",
 				"amount":         "valor positivo com ate duas casas decimais (total da compra, se parcelada)",
 				"date":           "data completa valida (dia, mes e ano)",
 				"type":           "tipo (Unica, Parcelada ou Fixa)", "installments": "quantidade de parcelas (2 a 120)",
@@ -445,7 +445,9 @@ func localToolReply(toolName string, toolResult any) string {
 			"De onde saiu:\n" +
 			"Salario: R$ " + formatMoney(totalSpentSalary) + "\n" +
 			"Adiantamento: R$ " + formatMoney(totalSpentAdiantamento) + "\n" +
-			"Renda Extra: R$ " + formatMoney(totalSpentRendaExtra) + "\n\n" +
+			"Renda Extra: R$ " + formatMoney(totalSpentRendaExtra) + "\n" +
+			"VA: R$ " + formatMoney(numberToFloat(result["total_gasto_va"])) + "\n" +
+			"VR: R$ " + formatMoney(numberToFloat(result["total_gasto_vr"])) + "\n\n" +
 			"Entradas do mes: R$ " + formatMoney(totalIncome) + "\n" +
 			"Saldo restante: R$ " + formatMoney(totalAvailable) + "."
 	}

@@ -14,6 +14,10 @@ func normalizePaymentSource(source string) string {
 		return "Adiantamento"
 	case "renda extra", "renda_extra":
 		return "Renda Extra"
+	case "va", "vale alimentação", "vale alimentacao", "vale-alimentação", "vale-alimentacao", "vale_alimentacao":
+		return "VA"
+	case "vr", "vale refeição", "vale refeicao", "vale-refeição", "vale-refeicao", "vale_refeicao":
+		return "VR"
 	default:
 		return ""
 	}

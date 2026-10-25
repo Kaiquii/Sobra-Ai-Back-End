@@ -147,7 +147,7 @@ func interpretFinancialIntent(client textGenerator, userID uint, message string,
 		"Categorias cadastradas do usuario: " + knownCategories + ".\n" +
 		"Se o usuario citar uma categoria, preencha category_name com o nome exato entendido ou com o nome cadastrado correspondente. Se nao houver categoria especifica, use string vazia.\n" +
 		"Se category_name estiver preenchido, a intent deve ser category_expenses quando a pergunta for sobre gastos ou valores.\n" +
-		"payment_source deve ser Salario, Adiantamento, Renda Extra ou string vazia.\n" +
+		"payment_source deve ser Salario, Adiantamento, Renda Extra, VA (vale-alimentação), VR (vale-refeição) ou string vazia.\n" +
 		"type deve ser Unica, Parcelada, Fixa ou string vazia se nao informado nem dedutivel do pedido.\n" +
 		"Para create_expense, extraia description, amount, category_name, payment_source, month, year, day, type e installments.\n" +
 		"No cadastro, NUNCA invente descricao, categoria, fonte, data, valor ou parcelas. Campos ausentes devem ficar vazios ou zero; o servidor perguntara o que falta. Use apenas categoria explicitamente escolhida pelo usuario, dentre as cadastradas.\n" +
