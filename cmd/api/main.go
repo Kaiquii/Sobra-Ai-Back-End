@@ -9,6 +9,7 @@ import (
 	"Sobra_Ai_Back-end/internal/expenses"
 	"Sobra_Ai_Back-end/internal/incomes"
 	"Sobra_Ai_Back-end/internal/migrations"
+	"Sobra_Ai_Back-end/internal/patrimony"
 	"Sobra_Ai_Back-end/internal/reports"
 	"Sobra_Ai_Back-end/internal/uploads"
 	"Sobra_Ai_Back-end/internal/users"
@@ -84,6 +85,7 @@ func newRouter() *gin.Engine {
 			reports.RegisterRoutes(protected)
 			categories.RegisterRoutes(protected)
 			users.RegisterRoutes(protected)
+			patrimony.RegisterRoutes(protected)
 			assistant.RegisterRoutes(protected)
 		}
 	}

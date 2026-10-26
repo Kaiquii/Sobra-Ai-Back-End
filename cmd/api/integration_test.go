@@ -450,6 +450,8 @@ func TestIntegrationAPI(t *testing.T) {
 		}
 	}
 	testBenefitsLifecycle(t, db, request, owner, other, catID)
+	testPatrimonyLifecycle(t, db, request, owner, other)
+	testInvestmentCategories(t, db, request, owner, other)
 	// Remove the generated series via public endpoints before the existing
 	// category deletion checks. No production database is used by this test.
 	all := request("GET", "/api/expenses/", owner, "", 200)
@@ -461,4 +463,6 @@ func TestIntegrationAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	request("GET", "/api/incomes/", owner, "", 403)
+	request("GET", "/api/patrimony/", owner, "", 403)
+	request("GET", "/api/patrimony/investment-categories", owner, "", 403)
 }

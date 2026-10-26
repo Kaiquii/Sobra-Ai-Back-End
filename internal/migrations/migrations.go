@@ -54,6 +54,9 @@ func init() {
 		{Version: 3, Name: "add_expense_payment_splits", Checksum: "4a708d6cbbb9445a2d1d4e79a0d51e2d1f50be3032a78a86fc7a27a8c03e8f12", Up: addExpensePaymentSplits},
 		{Version: 4, Name: "add_expense_advance_status", Checksum: "d45c5267cbff91235a63a42195c9ffb306c6d24f75b0a821a0f04826b3dfc8ef", Up: addExpenseAdvanceStatus},
 		{Version: 5, Name: "add_user_last_active", Checksum: "3ad160234f946be9008713d3264a2aef31c16a1b6605b1dcd45803a3ec94ddb6", Up: addUserLastActive},
+		{Version: 6, Name: "add_patrimony", Checksum: "e36eee162ed6f93b0e9ee0e528edb522fde74cd103515e03f8a17b5ffb9c1877", Up: addPatrimony},
+		{Version: 7, Name: "add_investment_categories", Checksum: "7516246c77df8f5cbad3ffad6e69d02dca10d663c6af45cb61ee33f68bddeb64", Up: addInvestmentCategories},
+		{Version: 8, Name: "add_investment_category_cdi", Checksum: "1621a5189f65a3e22865ddee7176df41984c6d9cc18d1e20c46977cf9edff7c0", Up: addInvestmentCategoryCDI},
 	}
 }
 
