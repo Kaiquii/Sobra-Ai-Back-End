@@ -1,5 +1,8 @@
 # Roteamento automatico da IA em 28/10/2026
 
+Registro da etapa anterior. O roteamento permanece ativo na evolucao de
+[estilo das respostas](publicacao-estilo-respostas-ia.md), que e a imagem atual.
+
 Publicacao explicitamente autorizada pelo usuario, concluida e auditada.
 Somente a API foi substituida; banco, proxy, volumes e configuracao permaneceram
 preservados. Ativacao as 15:36:50 de Sao Paulo, sem migration nova.

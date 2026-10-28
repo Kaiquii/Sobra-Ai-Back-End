@@ -5,11 +5,12 @@
 ignorando preferencias manuais antigas sem apaga-las. A escolha legada explicita
 continua compativel, com validacao gratuita, fallback e os mesmos limites de uso.
 
-**Estado em 28/10/2026:** roteamento automatico, OpenRouter e melhorias de contexto
-publicados em producao, com catalogo completo e dinamico de modelos gratuitos.
-Schema permanece 9. Validacoes e recuperacao atuais:
-[publicacao-roteamento-automatico-ia.md](publicacao-roteamento-automatico-ia.md).
-Registros anteriores: [catalogo completo](publicacao-catalogo-completo-ia.md) e
+**Estado em 28/10/2026:** estilo de respostas, roteamento automatico, OpenRouter e
+melhorias de contexto publicados em producao, com catalogo completo e dinamico de
+modelos gratuitos. Schema permanece 9. Validacoes e recuperacao atuais:
+[publicacao-estilo-respostas-ia.md](publicacao-estilo-respostas-ia.md).
+Registros anteriores: [roteamento automatico](publicacao-roteamento-automatico-ia.md),
+[catalogo completo](publicacao-catalogo-completo-ia.md) e
 [publicacao inicial](publicacao-openrouter.md).
 
 ## Regra principal
@@ -144,8 +145,8 @@ Se a resposta for sim, usar o modelo para interpretar e manter o Go como executo
 
 ## Estilo e apresentacao das mensagens
 
-Evolucao local de apresentacao, ainda sem nova publicacao: os prompts compartilham
-um estilo de portugues brasileiro natural, resposta principal primeiro, paragrafos
+Apresentacao publicada em 28/10/2026: os prompts compartilham um estilo de portugues
+brasileiro natural, resposta principal primeiro, paragrafos
 curtos com espaco entre blocos, negrito pontual e listas quando ajudam. Emojis sao
 opcionais e moderados, de zero a dois; avisos e limites mantem um tom sereno.
 Sem tabelas, HTML, blocos de codigo ou encerramentos genericos repetidos.
