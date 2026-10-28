@@ -129,6 +129,7 @@ func interpretFinancialIntentWithHistory(client textGenerator, userID uint, mess
 	now := time.Now()
 	knownCategories := categoryNamesForPrompt(userID)
 	prompt := "Interprete a mensagem do usuario para o SobraAí e responda com um unico objeto JSON valido, sem cercas de codigo nem texto fora do objeto.\n" +
+		"Nao escreva analise intermediaria nem repita o historico. Em consultas/cadastros, deixe reply vazio: o servidor consulta os dados e monta a resposta. Em general/app_help, responda de forma direta, sem repetir a pergunta.\n" +
 		"Data atual para resolver datas relativas explicitamente informadas: " + now.Format("2006-01-02") + ". Nao use essa data como padrao de cadastro.\n" +
 		"Intencoes possiveis:\n" +
 		"- general: cumprimento, conversa comum ou pergunta que nao exige dados financeiros.\n" +

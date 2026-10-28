@@ -3,7 +3,7 @@
 **Roteamento automatico do servidor:** o app deixa de escolher modelos. POST sem
 `model_id` ou com string vazia sempre usa roteamento automatico do servidor,
 ignorando preferencias manuais antigas sem apaga-las. A escolha legada explicita
-continua compativel, com validacao gratuita, fallback e os mesmos limites de uso.
+continua compativel, com validacao gratuita e os mesmos limites de uso.
 
 **Estado em 28/10/2026:** estilo de respostas, roteamento automatico, OpenRouter e
 melhorias de contexto publicados em producao, com catalogo completo e dinamico de
@@ -12,6 +12,12 @@ modelos gratuitos. Schema permanece 9. Validacoes e recuperacao atuais:
 Registros anteriores: [roteamento automatico](publicacao-roteamento-automatico-ia.md),
 [catalogo completo](publicacao-catalogo-completo-ia.md) e
 [publicacao inicial](publicacao-openrouter.md).
+
+**Atualizacao publicada em 28/10/2026, as 20:29 de Sao Paulo:** uma mensagem de
+chat permite no maximo uma chamada ao OpenRouter, com teto de 1024 tokens de
+saida na interpretacao quando suportado. Consultas financeiras sao formatadas
+localmente e a rotacao apos falha vale apenas para a mensagem seguinte.
+Validacao e rollback: [publicacao-economia-ia.md](publicacao-economia-ia.md).
 
 ## Regra principal
 
@@ -46,20 +52,19 @@ O fluxo correto e:
    - conversa comum
    - consulta de patrimonio, FGTS ou investimentos
 4. O Go executa a acao com seguranca usando o usuario autenticado pelo JWT.
-5. Em consultas financeiras, o modelo pode explicar o resultado atual com detalhe
-   proporcional ao pedido. O backend bloqueia figuras numericas nao presentes nos
-   dados e mantem uma resposta deterministica se a geracao falhar. Esse filtro nao
-   e uma prova de interpretacao semantica: o resultado estruturado continua sendo
-   a fonte de verdade dos saldos. Cadastros e confirmacoes usam textos exatos do Go.
+5. Em consultas financeiras, o Go formata o resultado autenticado sem uma segunda
+   inferencia para redigir a resposta. Conversa comum e ajuda usam o `reply` da
+   propria interpretacao. Cadastros e confirmacoes usam textos exatos do Go.
 
 Confirmar um cadastro preparado nao usa chamada ao modelo. Interpretar cadastro,
-conversa comum ou ajuda usa uma etapa; consultar e explicar valores pode usar duas.
-Cada etapa tenta no maximo tres modelos gratuitos. O orcamento de uma etapa e de
+conversa comum, ajuda e consulta financeira usam no maximo uma chamada.
+Falhas tambem gastam apenas essa tentativa; nao ha repeticao dentro da mensagem.
+O orcamento de uma etapa e de
 45 segundos e o chat inteiro tem limite de 55 segundos, menor que os timeouts
 padrao do proxy e do app.
 
 Quando um modelo estiver limitado, indisponivel ou devolver JSON invalido, o
-backend tenta outro modelo permitido, preservando conversa e dados. Cooldowns
+backend preserva conversa e dados; a proxima mensagem pode usar outro modelo. Cooldowns
 por modelo/conta respeitam Retry-After e o reset informado pelo OpenRouter.
 Cota global da conta (ou credito indisponivel) interrompe as tentativas: trocar
 modelo nao renova a cota. Retornar `error_code=assistant_quota_exceeded` com
@@ -214,37 +219,62 @@ opacos sao excluidos; `openrouter/free` pode aparecer como roteador exclusivamen
 gratuito. Cache de cinco minutos com espera cancelavel e cache curto de falhas;
 se nao for possivel revalidar apos expirar, bloquear em vez de arriscar cobranca.
 
-O tamanho da lista nao limita os candidatos do servidor. O limite de tres tentativas
-por etapa e apenas protecao contra consumo excessivo da cota e demora ao responder.
+O tamanho da lista nao limita os candidatos do servidor. Cada POST de chat tem um
+orcamento compartilhado de no maximo UMA chamada de completions. O orcamento e
+verificado na fronteira HTTP do provedor, inclusive se houver mais de um cliente
+ou etapa na mesma mensagem. Resposta invalida, truncada, timeout ou erro nao
+autorizam outra tentativa dentro desse POST. Modelos em cooldown podem ser
+descartados antes de enviar a unica chamada; uma rotacao apos falha vale somente
+para a proxima mensagem enviada pelo usuario, nunca para reenvio automatico.
 No modo automatico, o servidor reutiliza por ate cinco minutos o ultimo modelo
 gratuito que respondeu corretamente para a conta. Erros descartam essa prioridade;
 um modelo retirado do catalogo nao volta a ser utilizado por esse estado. Depois
 vem o recomendado e as demais alternativas elegiveis. Uma sugestao explicita de
-cliente antigo mantem prioridade, sem impedir fallback ou alterar os limites.
+cliente antigo mantem prioridade sem aumentar o orcamento de uma chamada.
 Disponibilidade gratuita pode variar por modelo, capacidade ou politica
 de dados; o catalogo nao garante capacidade instantanea. A politica `deny` continua
 ativa; nao liberar uso para treinamento automaticamente para fazer uma opcao funcionar.
 
 O novo app remove o seletor e envia somente mensagem e `conversation_id`,
 preservando historico e compositor. Nao reenviar POST automaticamente para trocar
-modelo; isso e responsabilidade do servidor antes de executar a acao financeira.
+modelo. O servidor pode escolher outra opcao na proxima mensagem, respeitando cooldown.
 Nao fixar IDs nem colocar chaves no app. Tratar `assistant_quota_exceeded`,
 `assistant_user_limit` e demais erros `assistant_*` com `retry_after_seconds`,
 preservando leitura de respostas antigas `gemini_quota_exceeded`.
 
 O OpenRouter nao documenta um contador de cota restante por modelo em cada resposta
 de sucesso. O roteamento nao inventa previsao: usa cooldown, `Retry-After` e reset
-reais quando disponiveis, e fallback limitado em erro/indisponibilidade. Cota global
+reais quando disponiveis, e rotacao entre mensagens em erro/indisponibilidade. Cota global
 da conta e limite por usuario interrompem tentativas em vez de tentar contorna-los.
 Referencia: [limites oficiais do OpenRouter](https://openrouter.ai/docs/api_reference/limits).
 Nenhuma rotacao apaga contadores, repete mensagens ou confirma cadastros por conta propria.
 
 ## Configuracao e publicacao
 
+### Economia de cota
+
+A interpretacao solicita somente o JSON util, sem analise intermediaria, repeticao
+do historico ou `reply` redundante nas consultas/cadastros. Nos modelos que aceitam
+limite de saida, `assistant_intent` usa no maximo 1024 tokens, respeitando tambem
+o contexto menor do modelo. Esse teto nao e uma promessa de economia percentual:
+entrada/historico tambem consomem tokens. Resposta truncada falha sem tentar outra
+inferencia na mesma mensagem. Conversa comum/ajuda ainda usam o reply dessa chamada.
+
+O harness PowerShell/shell substitui a chave herdada por uma credencial sintetica,
+para nao usar acidentalmente a conta real. As suites usam transportes locais/mock e
+PostgreSQL descartavel. No PowerShell, a variavel original e restaurada ao finalizar.
+Para validar uma publicacao, executar as suites com OpenRouter simulado e usar
+smokes de disponibilidade/autenticacao/leitura que nao gerem inferencia real.
+Nao enviar baterias de POSTs reais de chat em cada release. Um eventual teste de
+qualidade externo exige autorizacao e um orcamento de chamadas declarado antes;
+se autorizado, usar no maximo uma mensagem e considerar seu consumo na cota da conta.
+
+### Ambiente
+
 Definir `OPENROUTER_API_KEY` em ambiente privado. As antigas variaveis
 `GROQ_API_KEY`, `GROQ_MODEL`, `GEMINI_API_KEY` e `GEMINI_MODEL` nao sao utilizadas.
 Cada tentativa efetiva de geracao e limitada por usuario: por padrao 6 por minuto
-e 20 por dia UTC. Configuracao privada: `OPENROUTER_USER_RPM` (1 a 60) e
+e 50 por dia UTC. Configuracao privada: `OPENROUTER_USER_RPM` (1 a 60) e
 `OPENROUTER_USER_DAILY_LIMIT` (1 a 1000). O contador concorrente e mantido por
 processo; reiniciar a API o reinicia. Multiplas replicas exigem contador compartilhado.
 Esse limite retorna `assistant_user_limit` com `retry_after_seconds`; confirmacoes

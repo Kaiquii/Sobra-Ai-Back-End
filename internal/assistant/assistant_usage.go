@@ -8,10 +8,24 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type assistantUsageContextKey struct{}
+
+type assistantMessageBudgetKey struct{}
+
+// Shared by every generation/attempt belonging to one chat HTTP request.
+// A fresh request gets a fresh budget, independently of the daily user limit.
+func withAssistantMessageBudget(ctx context.Context) context.Context {
+	return context.WithValue(ctx, assistantMessageBudgetKey{}, &atomic.Bool{})
+}
+
+func assistantMessageBudgetExhausted(ctx context.Context) bool {
+	budget, ok := ctx.Value(assistantMessageBudgetKey{}).(*atomic.Bool)
+	return ok && budget.Load()
+}
 
 type assistantUsageIdentity struct {
 	account [32]byte
@@ -29,6 +43,9 @@ func withAssistantUsage(ctx context.Context, userID uint) context.Context {
 // Only completion HTTP attempts consume this allowance. Catalog queries,
 // preference changes and local expense confirmations do not call this gate.
 func reserveAssistantCall(ctx context.Context) error {
+	if budget, ok := ctx.Value(assistantMessageBudgetKey{}).(*atomic.Bool); ok && !budget.CompareAndSwap(false, true) {
+		return OpenRouterError{Code: "assistant_message_limit", StatusCode: http.StatusTooManyRequests}
+	}
 	identity, ok := ctx.Value(assistantUsageContextKey{}).(assistantUsageIdentity)
 	if !ok || identity.userID == 0 {
 		return nil
@@ -56,7 +73,7 @@ func assistantUsageLimits() (int, int, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	daily, err := parse("OPENROUTER_USER_DAILY_LIMIT", 20, 1000)
+	daily, err := parse("OPENROUTER_USER_DAILY_LIMIT", 50, 1000)
 	return rpm, daily, err
 }
 

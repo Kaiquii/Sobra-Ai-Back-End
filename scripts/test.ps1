@@ -13,6 +13,7 @@ $artifactDirectory = Join-Path $repositoryRoot ".artifacts\test"
 $coverageProfile = Join-Path $artifactDirectory "coverage.out"
 $coverageSummary = Join-Path $artifactDirectory "coverage.txt"
 $previousGoCache = $env:GOCACHE
+$previousOpenRouterKey = $env:OPENROUTER_API_KEY
 
 function Invoke-GoCommand {
     param(
@@ -31,6 +32,9 @@ try {
     if ($Quick -and $Integration) { throw "Use -Quick ou -Integration, nao ambos." }
     New-Item -ItemType Directory -Force -Path $goCacheDirectory | Out-Null
     $env:GOCACHE = $goCacheDirectory
+    # Harness never inherits the user's production inference credential.
+    # Provider calls in tests must be intercepted by the local test transport.
+    $env:OPENROUTER_API_KEY = "harness-no-real-inference"
 
     if ($Quick) {
         Write-Host "[test] Executando suite rapida..."
@@ -81,5 +85,6 @@ try {
 }
 finally {
     $env:GOCACHE = $previousGoCache
+    $env:OPENROUTER_API_KEY = $previousOpenRouterKey
     Pop-Location
 }

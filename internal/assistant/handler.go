@@ -36,7 +36,7 @@ func chat(c *gin.Context) {
 		return
 	}
 	userID := userIDObj.(uint)
-	c.Request = c.Request.WithContext(withAssistantUsage(c.Request.Context(), userID))
+	c.Request = c.Request.WithContext(withAssistantMessageBudget(withAssistantUsage(c.Request.Context(), userID)))
 
 	var req ChatRequest
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 128*1024)

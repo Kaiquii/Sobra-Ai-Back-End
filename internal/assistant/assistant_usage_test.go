@@ -28,7 +28,7 @@ func TestAssistantUsageConfigurationIsBounded(t *testing.T) {
 	t.Setenv("OPENROUTER_USER_RPM", "")
 	t.Setenv("OPENROUTER_USER_DAILY_LIMIT", "")
 	rpm, daily, err := assistantUsageLimits()
-	if err != nil || rpm != 6 || daily != 20 {
+	if err != nil || rpm != 6 || daily != 50 {
 		t.Fatalf("unexpected default usage configuration: %d %d %v", rpm, daily, err)
 	}
 	for _, tc := range []struct{ name, value string }{

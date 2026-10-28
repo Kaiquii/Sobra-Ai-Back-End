@@ -32,6 +32,11 @@ func assistantPatrimonyData(ctx context.Context, userID uint, kind string) (map[
 
 func naturalFinancialReply(client textGenerator, message string, history []Message, tool string, result map[string]any) string {
 	fallback := financialFallbackReply(tool, result)
+	if router, ok := client.(*openRouterClient); ok && assistantMessageBudgetExhausted(router.ctx) {
+		// Interpretation already consumed this chat's single completion. Format
+		// the authenticated query result locally instead of another inference.
+		return fallback
+	}
 	data, err := json.Marshal(result)
 	if err != nil || len(data) > 32000 {
 		return fallback

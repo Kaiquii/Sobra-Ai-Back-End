@@ -133,6 +133,9 @@ func orderedAssistantModels(models []AssistantModel, selected string) []Assistan
 }
 
 func (client *openRouterClient) generateText(request GeminiRequest) (string, error) {
+	if assistantMessageBudgetExhausted(client.ctx) {
+		return "", OpenRouterError{Code: "assistant_message_limit", StatusCode: http.StatusTooManyRequests}
+	}
 	ctx, cancel := context.WithTimeout(client.ctx, openRouterRequestBudget)
 	defer cancel()
 	if retry := routerCooldownRemaining(client.account); retry > 0 {
@@ -140,6 +143,10 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 	}
 	lastError := OpenRouterError{Code: "assistant_models_unavailable", StatusCode: http.StatusServiceUnavailable, RetryAfterSeconds: 30}
 	attempts := 0
+	maxAttempts := openRouterMaxAttempts
+	if client.ctx.Value(assistantMessageBudgetKey{}) != nil {
+		maxAttempts = 1
+	}
 	models := client.models
 	if client.automatic {
 		preferred := openRouterAutoRouting.preferred(client.account, models, time.Now())
@@ -150,7 +157,7 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 		models = orderedAssistantModels(models, preferred)
 	}
 	for _, model := range models {
-		if attempts >= openRouterMaxAttempts {
+		if attempts >= maxAttempts {
 			break
 		}
 		if ctx.Err() != nil {
@@ -308,7 +315,11 @@ func routerPayload(model AssistantModel, req GeminiRequest) (openRouterRequest, 
 	if model.ContextLength <= 512 {
 		return openRouterRequest{}, OpenRouterError{Code: "assistant_model_context_exceeded", StatusCode: http.StatusRequestEntityTooLarge}
 	}
-	outputBudget := min(2048, (model.ContextLength-256)/4)
+	outputLimit := 2048
+	if req.DebugStage == "assistant_intent" {
+		outputLimit = 1024
+	}
+	outputBudget := min(outputLimit, (model.ContextLength-256)/4)
 	inputBudget := model.ContextLength - outputBudget - 256
 	messageSize := func(messages []openRouterMessage) int {
 		total := 0

@@ -10,6 +10,9 @@ coverage_summary="$artifact_directory/coverage.txt"
 cd "$repository_root"
 mkdir -p "$go_cache_directory"
 export GOCACHE="$go_cache_directory"
+# Never pass the caller's real inference credential into automated tests.
+# Provider tests use local/mock transports and their own synthetic credentials.
+export OPENROUTER_API_KEY=harness-no-real-inference
 
 if [ "$#" -eq 1 ] && [ "$1" = "--quick" ]; then
     echo "[test] Executando suite rapida..."
