@@ -5,11 +5,12 @@
 ignorando preferencias manuais antigas sem apaga-las. A escolha legada explicita
 continua compativel, com validacao gratuita, fallback e os mesmos limites de uso.
 
-**Estado em 28/10/2026:** OpenRouter e melhorias de contexto publicados em
-producao, com catalogo completo e dinamico de modelos gratuitos. A correção da
-lista foi publicada sem nova migration; schema permanece 9. Validacoes e
-recuperacao atuais: [publicacao-catalogo-completo-ia.md](publicacao-catalogo-completo-ia.md).
-A primeira publicacao esta em [publicacao-openrouter.md](publicacao-openrouter.md).
+**Estado em 28/10/2026:** roteamento automatico, OpenRouter e melhorias de contexto
+publicados em producao, com catalogo completo e dinamico de modelos gratuitos.
+Schema permanece 9. Validacoes e recuperacao atuais:
+[publicacao-roteamento-automatico-ia.md](publicacao-roteamento-automatico-ia.md).
+Registros anteriores: [catalogo completo](publicacao-catalogo-completo-ia.md) e
+[publicacao inicial](publicacao-openrouter.md).
 
 ## Regra principal
 

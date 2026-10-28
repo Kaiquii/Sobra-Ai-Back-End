@@ -1,7 +1,8 @@
 # Publicacao OpenRouter e contexto em 28/10/2026
 
-Registro da publicacao inicial. A correcao posterior do catalogo completo esta
-ativa e documentada em [publicacao-catalogo-completo-ia.md](publicacao-catalogo-completo-ia.md).
+Registro da publicacao inicial. Evolucoes posteriores:
+[catalogo completo](publicacao-catalogo-completo-ia.md) e
+[roteamento automatico ativo](publicacao-roteamento-automatico-ia.md).
 Os tres modelos e a imagem abaixo representam a etapa inicial, nao a lista atual.
 
 Publicacao explicitamente autorizada pelo usuario, concluida e auditada.

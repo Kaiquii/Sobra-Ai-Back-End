@@ -1,10 +1,13 @@
 # Catalogo completo e automatico de IA gratuita
 
+Registro da etapa anterior. A evolucao de roteamento automatico esta ativa e
+documentada em [publicacao-roteamento-automatico-ia.md](publicacao-roteamento-automatico-ia.md).
+
 Correcao publicada em 28/10/2026, em continuidade ao pedido original de oferecer
 todas as opcoes gratuitas. Removidos a shortlist de tres, a variavel de restricao
 `OPENROUTER_MODELS` e os filtros de JSON nativo/contexto minimo para exibicao.
 
-- Imagem ativa: `app-financeiro-api:openrouter-all-models-20261028`.
+- Imagem desta etapa: `app-financeiro-api:openrouter-all-models-20261028`.
 - Digest: `sha256:030229b806697bd01b57a2b1666ba81f8c367e79193cd014616186530a4deec2`.
 - Catalogo autenticado validado com **17 opcoes**, conjunto identico ao catalogo
   publico de modelos gratuitos de conversa no momento do teste. O numero nao e
