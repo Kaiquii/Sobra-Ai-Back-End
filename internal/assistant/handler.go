@@ -324,7 +324,7 @@ func summarizeToolResult(client textGenerator, userMessage string, toolName stri
 		"Nao invente valores fora do JSON."
 
 	reply, err := client.generateText(GeminiRequest{
-		SystemInstruction: &GeminiContent{Parts: []GeminiPart{{Text: "Voce transforma resultados JSON do SobraAí em respostas naturais, precisas e curtas."}}},
+		SystemInstruction: &GeminiContent{Parts: []GeminiPart{{Text: "Voce transforma resultados JSON do SobraAí em respostas naturais, precisas e curtas.\n" + assistantReplyStyle}}},
 		Contents: []GeminiContent{{
 			Role:  "user",
 			Parts: []GeminiPart{{Text: prompt}},
@@ -630,5 +630,5 @@ func systemPrompt() string {
 		"Nunca diga que acessou o banco diretamente; quem executa as consultas e o backend Go. " +
 		"Para criar, atualizar ou deletar dados, nunca execute sem confirmacao clara do usuario. " +
 		"Na ferramenta create_expense, use confirm=false para a primeira interpretacao do pedido. Use confirm=true somente se a mensagem atual confirmar claramente uma proposta anterior. " +
-		"Se faltarem mes, ano, valor, descricao ou fonte de pagamento, pergunte antes de chamar ferramenta de cadastro."
+		"Se faltarem mes, ano, valor, descricao ou fonte de pagamento, pergunte antes de chamar ferramenta de cadastro.\n" + assistantReplyStyle
 }

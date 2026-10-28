@@ -223,6 +223,28 @@ func TestIntegrationAssistantAutomaticRouting(t *testing.T) {
 		assertPreferencePreserved(t)
 	})
 
+	t.Run("preserves_formatted_reply_and_history_without_extra_inference", func(t *testing.T) {
+		t.Setenv("OPENROUTER_API_KEY", "automatic-routing-formatted-reply-only")
+		richReply := "💡 **Organize por categoria**\n\n- **Veja o resumo** do mês.\n- Revise \"Transporte\" com calma."
+		intent, err := json.Marshal(map[string]any{"intent": "app_help", "reply": richReply})
+		if err != nil {
+			t.Fatal(err)
+		}
+		transport.setResponses(automaticRoutingReply(string(intent)))
+		message := "Como posso organizar meus gastos?"
+		answer := request(t, "POST", "/api/assistant/chat", map[string]any{"message": message})
+		if answer["reply"] != richReply || answer["tool_call"] != "app_help" || len(transport.attemptedModels()) != 1 {
+			t.Fatalf("formatted reply was modified or required extra inference: %+v", answer)
+		}
+		conversation := fmt.Sprintf("%.0f", answer["conversation_id"].(float64))
+		history := request(t, "GET", "/api/assistant/conversations/"+conversation+"/messages", nil)
+		messages := history["messages"].([]any)
+		if len(messages) != 2 || messages[0].(map[string]any)["content"] != message || messages[1].(map[string]any)["content"] != richReply {
+			t.Fatalf("formatting changed the persisted conversation: %+v", messages)
+		}
+		assertPreferencePreserved(t)
+	})
+
 	for _, status := range []int{429, 402} {
 		t.Run(fmt.Sprintf("global_%d_stops_retries", status), func(t *testing.T) {
 			t.Setenv("OPENROUTER_API_KEY", fmt.Sprintf("automatic-routing-global-%d-only", status))

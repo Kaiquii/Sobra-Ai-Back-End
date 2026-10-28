@@ -142,6 +142,31 @@ Antes de adicionar qualquer condicao baseada em frase, perguntar:
 
 Se a resposta for sim, usar o modelo para interpretar e manter o Go como executor seguro.
 
+## Estilo e apresentacao das mensagens
+
+Evolucao local de apresentacao, ainda sem nova publicacao: os prompts compartilham
+um estilo de portugues brasileiro natural, resposta principal primeiro, paragrafos
+curtos com espaco entre blocos, negrito pontual e listas quando ajudam. Emojis sao
+opcionais e moderados, de zero a dois; avisos e limites mantem um tom sereno.
+Sem tabelas, HTML, blocos de codigo ou encerramentos genericos repetidos.
+
+O contrato continua igual: `reply` e `content` sao strings. Na interpretacao, o
+objeto JSON externo permanece puro; Markdown simples e quebras escapadas podem
+aparecer apenas na string `reply`. Nao ha nova API, migration ou chamada extra de
+IA para decorar uma resposta. Confirmacoes e escritas financeiras continuam no Go.
+
+O app deve renderizar o subconjunto visual nas mensagens do assistente, incluindo
+as antigas: negrito, paragrafos e listas. Mensagens do usuario permanecem literais.
+Guardar o conteudo original no estado/historico e preservar selecao, acessibilidade
+e os valores exatos. Nao executar HTML, buscar imagens nem abrir links por conta
+propria. Exibir os asteriscos literalmente nao implementa o negrito visual.
+
+A validacao financeira considera uma copia sem marcadores de formatacao para
+impedir que `R$ **2026**` transforme um ano permitido em valor monetario inventado.
+Essa normalizacao nao altera o texto retornado ou persistido. Consultas financeiras
+preferem marcadores a listas numeradas, evitando introduzir numeros sem origem nos
+dados autenticados.
+
 ## Roteamento automatico e compatibilidade do catalogo
 
 Todas as rotas abaixo exigem JWT e respeitam o bloqueio de acesso.

@@ -295,7 +295,7 @@ func routerPayload(model AssistantModel, req GeminiRequest) (openRouterRequest, 
 		payload.ResponseFormat = map[string]string{"type": "json_object"}
 	}
 	if req.DebugStage == "assistant_intent" && !model.SupportsResponseFormat {
-		const instruction = "Responda exclusivamente com um objeto JSON valido com a intencao e os campos pedidos, sem markdown ou texto fora do JSON."
+		const instruction = "Responda exclusivamente com um objeto JSON valido com a intencao e os campos pedidos, sem cercas de codigo nem texto fora do objeto. A string reply pode conter Markdown simples, com quebras de linha escapadas como \\n."
 		if len(payload.Messages) > 0 && payload.Messages[0].Role == "system" {
 			payload.Messages[0].Content += "\n" + instruction
 		} else {

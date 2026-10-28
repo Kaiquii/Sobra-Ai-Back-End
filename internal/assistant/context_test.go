@@ -31,14 +31,29 @@ func TestServerHistoryPreservesFollowupsAndBoundsContext(t *testing.T) {
 }
 
 func TestFinancialRepliesRejectInventedFigures(t *testing.T) {
-	data := []byte(`{"total_expense":2802,"percentage":80.74,"month":9,"year":2026,"id":999,"name":"Meta 555"}`)
+	data := []byte(`{"total_expense":2802,"total_geral_disponivel":-50.25,"percentage":80.74,"month":9,"year":2026,"id":999,"name":"Meta 555"}`)
 	for _, tc := range []struct {
 		reply string
 		valid bool
 	}{
 		{"Voce gastou R$ 2.802,00, em setembro/2026.", true},
+		{"Voce gastou R$ **2.802,00**.", true},
+		{"Voce gastou **R$ 2.802,00**.", true},
+		{"Voce gastou **2.802,00** reais.", true},
+		{"Voce gastou R$\u00a0**2.802,00**.", true},
+		{"Voce gastou R$\u202f**2.802,00**.", true},
+		{"Seu saldo e **R$ -50,25**.", true},
+		{"Seu saldo e **-50,25** reais.", true},
 		{"Isso corresponde a 80,74%.", true},
 		{"Voce gastou R$ 999,00.", false},
+		{"Voce gastou R$ **999,00**.", false},
+		{"Seu saldo e R$ **2026**.", false},
+		{"Seu saldo e **2026** reais.", false},
+		{"Seu saldo e R$\u00a0**2026**.", false},
+		{"Seu saldo e R$\u202f__2026__.", false},
+		{"Seu saldo e R\\$ **2026**.", false},
+		{"Seu saldo e **R$ -2.802,00**.", false},
+		{"Seu saldo e R$ **-999,00**.", false},
 		{"Seu saldo e R$ 9,00.", false},
 		{"Voce tem 555 reais.", false},
 		{"Voce gastou R$ 2.802,00 e pode economizar 500 reais.", false},
@@ -49,10 +64,40 @@ func TestFinancialRepliesRejectInventedFigures(t *testing.T) {
 	}
 }
 
+func TestFinancialReplyMoneySignsSurviveFormatting(t *testing.T) {
+	positive := []byte(`{"amount":50.25,"year":2026}`)
+	negative := []byte(`{"amount":-50.25,"year":2026}`)
+	for _, test := range []struct {
+		reply              string
+		positive, negative bool
+	}{
+		{"**R$ 50,25**", true, false},
+		{"R$ + 50,25", true, false},
+		{"- **FGTS:** R$ 50,25", true, false},
+		{"- **R$ 50,25**", true, false},
+		{"**-R$50,25**", false, true},
+		{"**-R$ 50,25**", false, true},
+		{"**−R$\u202f50,25**", false, true},
+		{"R$ −50,25", false, true},
+		{"**R$ − 50,25**", false, true},
+		{"R$\u00a0−**50,25**", false, true},
+		{"- **FGTS:** R$ −50,25", false, true},
+		{"**−50,25** reais", false, true},
+		{"**-R$99,00**", false, false},
+	} {
+		if got := financialNumbersSupported(test.reply, positive); got != test.positive {
+			t.Errorf("positive data supported(%q)=%v want%v", test.reply, got, test.positive)
+		}
+		if got := financialNumbersSupported(test.reply, negative); got != test.negative {
+			t.Errorf("negative data supported(%q)=%v want%v", test.reply, got, test.negative)
+		}
+	}
+}
+
 func TestNaturalReplyUsesCurrentFactsAndFallsBackWithoutAnotherProvider(t *testing.T) {
 	data := map[string]any{"total_fgts": 300.0, "fgts": map[string]any{"amount": 300.0}}
 	history := []Message{{Role: "assistant", Content: "Seu saldo antigo era R$ 200,00."}}
-	generator := &contextGenerator{text: "Seu FGTS informado esta em R$ 300,00. Atualize quando necessario."}
+	generator := &contextGenerator{text: "💰 Seu FGTS informado esta em **R$ 300,00**. Atualize quando necessario."}
 	reply := naturalFinancialReply(generator, "e meu fgts?", history, "fgts_balance", data)
 	if reply != generator.text || generator.request.DebugStage != "assistant_summarize_tool" || len(generator.request.Contents) != 2 {
 		t.Fatal("natural response must preserve context and current data")
