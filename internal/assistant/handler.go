@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"Sobra_Ai_Back-end/internal/database"
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -19,20 +20,33 @@ func RegisterRoutes(rg *gin.RouterGroup) {
 		assistantGroup.GET("/conversations", listConversations)
 		assistantGroup.GET("/conversations/:id/messages", listMessages)
 		assistantGroup.DELETE("/conversations/:id", deleteConversation)
+		assistantGroup.GET("/models", listAssistantModels)
+		assistantGroup.GET("/model-preference", getAssistantModelPreference)
+		assistantGroup.PUT("/model-preference", updateAssistantModelPreference)
 	}
 }
 
 func chat(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 55*time.Second)
+	defer cancel()
+	c.Request = c.Request.WithContext(ctx)
 	userIDObj, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Usuario nao identificado"})
 		return
 	}
 	userID := userIDObj.(uint)
+	c.Request = c.Request.WithContext(withAssistantUsage(c.Request.Context(), userID))
 
 	var req ChatRequest
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 128*1024)
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Dados invalidos: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Mensagem invalida"})
+		return
+	}
+	req.Message = strings.TrimSpace(req.Message)
+	if req.Message == "" || len(req.Message) > 8000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Informe uma mensagem de ate 8000 bytes"})
 		return
 	}
 
@@ -55,9 +69,33 @@ func chat(c *gin.Context) {
 		c.JSON(http.StatusOK, ChatResponse{ConversationID: conversation.ID, Reply: "Nao ha cadastro pendente para confirmar. Informe os dados da despesa."})
 		return
 	}
-	client, err := newAssistantGenerator()
+	selected, err := preferredAssistantModel(userID)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao carregar preferencia de modelo"})
+		return
+	}
+	if req.ModelID != nil {
+		selected = strings.TrimSpace(*req.ModelID)
+		if selected != "" {
+			models, catalogErr := listFreeAssistantModels(c.Request.Context())
+			if catalogErr != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Catalogo de modelos temporariamente indisponivel", "error_code": "assistant_unavailable"})
+				return
+			}
+			allowed := false
+			for _, model := range models {
+				allowed = allowed || model.ID == selected
+			}
+			if !allowed {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Selecione um modelo gratuito disponivel", "error_code": "invalid_model"})
+				return
+			}
+		}
+	}
+	client, err := newAssistantGeneratorForModel(c.Request.Context(), selected)
+	if err != nil {
+		reply, code, retry := assistantErrorResponse(err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": reply, "error_code": code, "retry_after_seconds": retry})
 		return
 	}
 
@@ -72,7 +110,7 @@ func chat(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao carregar rascunho"})
 		return
 	}
-	handled, reply, toolCall, toolResult := handleFinancialMessageWithContext(client, userID, req.Message, pending)
+	handled, reply, toolCall, toolResult := handleFinancialMessageWithHistory(c.Request.Context(), client, userID, req.Message, recentMessages, pending)
 	if handled {
 		errorCode, retryAfter := responseErrorFields(toolResult)
 		if errorCode != "" {
@@ -108,7 +146,7 @@ func chat(c *gin.Context) {
 
 	reply, err = client.generateText(request)
 	if err != nil {
-		log.Printf("Erro ao chamar Gemini no assistente: %v", err)
+		log.Printf("Assistente: falha na resposta conversacional")
 		reply, errorCode, retryAfter := assistantErrorResponse(err)
 		_ = saveMessage(userID, conversation.ID, "user", req.Message, "", nil)
 		_ = saveMessage(userID, conversation.ID, "assistant", reply, "", nil)
@@ -348,11 +386,17 @@ func normalizeText(text string) string {
 }
 
 func assistantErrorResponse(err error) (string, string, int) {
-	if retryAfter, ok := geminiQuotaInfo(err); ok {
-		return quotaReply(retryAfter), "gemini_quota_exceeded", retryAfter
+	if code, retryAfter, ok := openRouterErrorInfo(err); ok {
+		if code == "assistant_user_limit" {
+			return "Voce atingiu seu limite temporario de consultas com IA. Seus dados continuam disponiveis nas telas do app. Tente novamente mais tarde.", code, retryAfter
+		}
+		if code == "assistant_quota_exceeded" {
+			return quotaReply(retryAfter), code, retryAfter
+		}
+		return "A IA esta temporariamente indisponivel. Tente novamente em alguns instantes.", code, retryAfter
 	}
 
-	return "Nao consegui falar com a IA agora. Tente novamente em alguns instantes.", "gemini_unavailable", 0
+	return "Nao consegui falar com a IA agora. Tente novamente em alguns instantes.", "assistant_unavailable", 0
 }
 
 func responseErrorFields(toolResult any) (string, int) {
@@ -368,9 +412,9 @@ func responseErrorFields(toolResult any) (string, int) {
 
 func quotaReply(retryAfter int) string {
 	if retryAfter > 0 {
-		return "O limite gratuito do Gemini foi atingido agora. Tente novamente em " + strconv.Itoa(retryAfter) + " segundos."
+		return "A IA atingiu o limite temporario de uso. Tente novamente em " + strconv.Itoa(retryAfter) + " segundos."
 	}
-	return "O limite gratuito do Gemini foi atingido agora. Tente novamente em alguns instantes."
+	return "A IA atingiu o limite temporario de uso. Tente novamente mais tarde. Seus dados continuam disponiveis no aplicativo."
 }
 
 func localToolReply(toolName string, toolResult any) string {

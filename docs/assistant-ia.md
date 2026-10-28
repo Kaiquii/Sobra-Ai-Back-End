@@ -1,5 +1,11 @@
 # Assistente IA
 
+**Estado em 28/10/2026:** OpenRouter e melhorias de contexto publicados em
+producao, com catalogo completo e dinamico de modelos gratuitos. A correção da
+lista foi publicada sem nova migration; schema permanece 9. Validacoes e
+recuperacao atuais: [publicacao-catalogo-completo-ia.md](publicacao-catalogo-completo-ia.md).
+A primeira publicacao esta em [publicacao-openrouter.md](publicacao-openrouter.md).
+
 ## Regra principal
 
 O assistente nao deve depender de padroes fixos de texto para entender perguntas do usuario.
@@ -14,38 +20,56 @@ Esse caminho deixa o assistente engessado e contradiz a proposta do produto.
 
 ## Como deve funcionar
 
-O Groq deve ser usado como provedor principal para interpretar a mensagem livre do usuario. O Gemini deve ser usado como fallback quando o Groq falhar ou estiver indisponivel.
+O OpenRouter e o unico provedor do assistente. Groq e Gemini nao sao chamados.
+A chave `OPENROUTER_API_KEY` fica exclusivamente no ambiente do backend, nunca no
+APK, Git, resposta HTTP, manifesto ou logs.
 
 O fluxo correto e:
 
 1. O usuario envia uma mensagem natural.
-2. O back-end envia essa mensagem para o Groq interpretar.
-3. O Groq devolve uma intencao estruturada, por exemplo:
+2. O back-end envia a mensagem, ate 20 mensagens recentes da mesma conversa e o
+   rascunho ao modelo gratuito selecionado no OpenRouter. Historico recebido no
+   corpo do cliente nao e usado como autoridade; somente registros do servidor
+   vinculados ao usuario autenticado sao incluidos, com limite de 24000 bytes.
+3. O modelo devolve uma intencao estruturada, por exemplo:
    - resumo mensal
    - gastos por categoria
    - cadastro de despesa
    - duvida sobre o app
    - conversa comum
+   - consulta de patrimonio, FGTS ou investimentos
 4. O Go executa a acao com seguranca usando o usuario autenticado pelo JWT.
-5. O Go monta uma resposta curta e clara usando o resultado consultado.
+5. Em consultas financeiras, o modelo pode explicar o resultado atual com detalhe
+   proporcional ao pedido. O backend bloqueia figuras numericas nao presentes nos
+   dados e mantem uma resposta deterministica se a geracao falhar. Esse filtro nao
+   e uma prova de interpretacao semantica: o resultado estruturado continua sendo
+   a fonte de verdade dos saldos. Cadastros e confirmacoes usam textos exatos do Go.
 
-Para economizar cota, o fluxo financeiro deve usar apenas uma chamada ao provedor principal sempre que possivel: a chamada de interpretacao da intencao. Depois disso, o Go executa a acao e responde com base nos dados retornados.
+Confirmar um cadastro preparado nao usa chamada ao modelo. Interpretar cadastro,
+conversa comum ou ajuda usa uma etapa; consultar e explicar valores pode usar duas.
+Cada etapa tenta no maximo tres modelos gratuitos. O orcamento de uma etapa e de
+45 segundos e o chat inteiro tem limite de 55 segundos, menor que os timeouts
+padrao do proxy e do app.
 
-Quando o Gemini for usado como fallback e retornar limite de cota, o back-end deve respeitar o tempo de retry informado pela API e evitar novas chamadas ao Gemini ate esse periodo acabar. Durante esse cooldown, a API deve responder com `error_code=gemini_quota_exceeded` e `retry_after_seconds`.
+Quando um modelo estiver limitado, indisponivel ou devolver JSON invalido, o
+backend tenta outro modelo permitido, preservando conversa e dados. Cooldowns
+por modelo/conta respeitam Retry-After e o reset informado pelo OpenRouter.
+Cota global da conta (ou credito indisponivel) interrompe as tentativas: trocar
+modelo nao renova a cota. Retornar `error_code=assistant_quota_exceeded` com
+`retry_after_seconds`; nao disfarcar uma falha como resposta concluida.
 
-O fallback para o Gemini deve preservar o mesmo contrato: interpretar a mensagem em JSON estruturado e deixar o Go executar a acao com seguranca.
+As alternativas preservam o contrato JSON e nunca podem ser modelos pagos.
 
 ## Responsabilidades
 
-### Groq
+### OpenRouter e modelos gratuitos
 
 - Entender a intencao da mensagem.
 - Extrair entidades como mes, ano, categoria, valor, fonte de pagamento e descricao.
 - Gerar respostas finais apenas quando for conversa comum, ajuda sobre o app ou quando uma resposta deterministica do Go nao for suficiente.
 
-### Gemini (fallback)
-
-- Assumir a mesma responsabilidade do Groq apenas quando o provedor principal falhar ou estiver indisponivel.
+- Selecionar alternativas somente dentro do catalogo aprovado pelo servidor.
+- Impor `provider.max_price` zero, `data_collection=deny`, sem plugins pagos.
 
 ### Go
 
@@ -108,6 +132,88 @@ tipos JSON de `description` (string) e `category_id` (numero), sem reparar regis
 
 Antes de adicionar qualquer condicao baseada em frase, perguntar:
 
-"Isso pode ser interpretado pelo Gemini em vez de virar mais um padrao no Go?"
+"Isso pode ser interpretado pelo modelo em vez de virar mais um padrao no Go?"
 
-Se a resposta for sim, usar o Gemini para interpretar e manter o Go apenas como executor seguro.
+Se a resposta for sim, usar o modelo para interpretar e manter o Go como executor seguro.
+
+## Catalogo e preferencia do usuario
+
+Todas as rotas abaixo exigem JWT e respeitam o bloqueio de acesso.
+
+- GET `/api/assistant/models`: retorna `models` com `id`, `name`, `description` e
+  `recommended`; `selected_model` (vazio para Recomendado), `recommended_model`,
+  `effective_model_id` e `automatic_fallback=true`.
+- GET `/api/assistant/model-preference`: retorna `model_id`, `effective_model_id`
+  e `available`. Uma preferencia removida do catalogo fica `available=false` e
+  usa o recomendado sem reescrever silenciosamente a preferencia armazenada.
+- PUT `/api/assistant/model-preference`: corpo `{"model_id":"id-retornado"}`;
+  `{"model_id":""}` restaura Recomendado. Retorna o mesmo formato do GET.
+- POST `/api/assistant/chat` preserva os campos existentes. O campo opcional
+  `model_id` pode escolher um modelo para essa mensagem sem alterar a preferencia;
+  ausente usa a preferencia salva, vazio usa Recomendado. Pago/desconhecido: 400.
+
+Somente o dono autenticado pode ler/gravar sua preferencia. Migration
+`000009_add_assistant_model_preferences` cria a tabela com FK e exclusao em cascata.
+A API valida migrations; executar `migrate up` explicitamente na publicacao.
+
+O catalogo lista automaticamente TODOS os modelos de conversa gratuitos retornados
+pelo OpenRouter, sem shortlist ou limite de quantidade. `OPENROUTER_MODELS` nao
+restringe mais a lista. Dots3-Note Preview permanece recomendado quando presente;
+os demais nomes sao ordenados para facilitar a busca. Recomendado e um atalho,
+nao um modelo adicional. Modelos novos gratuitos aparecem na proxima atualizacao
+e os que passam a cobrar deixam de ser oferecidos.
+
+Os modelos devem aceitar texto e gerar texto pelo endpoint de conversa. Servicos
+de embeddings, reranking e geracao de audio/imagem nao sao opcoes de chat.
+Nao se exige suporte nativo a JSON para aparecer: o adaptador envia somente os
+parametros suportados, pede JSON no prompt e valida a resposta antes de executar
+qualquer acao. Todos os campos de precos, inclusive adicionais e overrides, devem
+ser zero; um sufixo `:free` sozinho nao prova gratuidade. Roteadores pagos ou
+opacos sao excluidos; `openrouter/free` pode aparecer como roteador exclusivamente
+gratuito. Cache de cinco minutos com espera cancelavel e cache curto de falhas;
+se nao for possivel revalidar apos expirar, bloquear em vez de arriscar cobranca.
+
+O tamanho da lista nao limita as opcoes de escolha. O limite de tres tentativas
+por etapa e apenas protecao contra consumo excessivo da cota e demora ao responder.
+A escolha do usuario e tentada primeiro, seguida do recomendado e de alternativas
+gratuitas. Disponibilidade gratuita pode variar por modelo, capacidade ou politica
+de dados; o catalogo nao garante capacidade instantanea. A politica `deny` continua
+ativa; nao liberar uso para treinamento automaticamente para fazer uma opcao funcionar.
+
+O seletor no topo do chat e responsabilidade do app. Carregar a lista do backend,
+salvar pelo PUT e preservar `conversation_id`, mensagens e rascunho do compositor.
+Nao fixar IDs nem colocar chaves no app. Uma falha do catalogo deve permitir retry
+sem apagar a conversa. Tratar `assistant_quota_exceeded` e demais erros
+`assistant_*`, preservando leitura de respostas antigas `gemini_quota_exceeded`.
+Ao abrir a selecao de modelo, reconsultar o catalogo ou renovar se estiver antigo,
+sem deixar a mesma lista presa a uma conversa longa. A API atualiza o cache sob
+demanda a cada cinco minutos; o app nao precisa receber novos nomes por APK.
+
+## Configuracao e publicacao
+
+Definir `OPENROUTER_API_KEY` em ambiente privado. As antigas variaveis
+`GROQ_API_KEY`, `GROQ_MODEL`, `GEMINI_API_KEY` e `GEMINI_MODEL` nao sao utilizadas.
+Cada tentativa efetiva de geracao e limitada por usuario: por padrao 6 por minuto
+e 20 por dia UTC. Configuracao privada: `OPENROUTER_USER_RPM` (1 a 60) e
+`OPENROUTER_USER_DAILY_LIMIT` (1 a 1000). O contador concorrente e mantido por
+processo; reiniciar a API o reinicia. Multiplas replicas exigem contador compartilhado.
+Esse limite retorna `assistant_user_limit` com `retry_after_seconds`; confirmacoes
+locais, consulta de catalogo e preferencias nao consomem chamadas ao modelo.
+Nao configurar fallback pago nem plugins. A cota gratuita da conta e compartilhada
+por todos os usuarios e modelos; ela nao aumenta ao selecionar outra opcao.
+
+Antes de publicar: harness completo com integracao, teste sintetico com modelo
+real, backup restaurado em PostgreSQL isolado, migration 8->9, comparacao dos dados
+financeiros, ensaio de inicializacao/rotas da release e da imagem de recuperacao.
+Preservar configuracao efetiva da API; apenas substituir variaveis de provedores
+pela chave OpenRouter. Nao reiniciar banco ou proxy.
+
+O binario antigo conhece apenas schema 8 e recusa schema 9. O rollback operacional
+precisa do binario anterior com o registro imutavel da migration 9, preservando
+tabela e preferencias, junto do ambiente anterior privado. Nunca apagar registros
+de migration nem restaurar backup sobre novas escritas para reverter so a API.
+
+O repositorio local contem rascunhos IA nao versionados que duplicam funcoes de
+`expense_create.go`. Esses arquivos e as alteracoes preexistentes no Compose sao
+preservados; o harness e os binarios desta entrega usam copia isolada dos mesmos
+fontes, excluindo somente esses rascunhos/Compose e configuracoes privadas.

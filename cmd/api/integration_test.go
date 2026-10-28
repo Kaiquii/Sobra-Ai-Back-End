@@ -41,8 +41,18 @@ func (transport *integrationLLMTransport) RoundTrip(req *http.Request) (*http.Re
 	if req.URL.Hostname() == "127.0.0.1" {
 		return transport.base.RoundTrip(req)
 	}
-	if req.URL.Hostname() != "api.groq.com" {
+	if req.URL.Hostname() != "openrouter.ai" {
 		return nil, fmt.Errorf("external network forbidden in integration test")
+	}
+	if req.Method == http.MethodGet && req.URL.Path == "/api/v1/models" {
+		body, err := integrationModelCatalogJSON()
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(body))), Request: req}, nil
+	}
+	if req.Method != http.MethodPost || req.URL.Path != "/api/v1/chat/completions" {
+		return nil, fmt.Errorf("unexpected provider endpoint")
 	}
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
@@ -61,6 +71,33 @@ func (transport *integrationLLMTransport) RoundTrip(req *http.Request) (*http.Re
 		return nil, err
 	}
 	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(encoded))), Request: req}, nil
+}
+
+// All integration transports expose the same public catalog. Production caches
+// the public catalog independently from individual users and credentials.
+func integrationModelCatalogJSON() ([]byte, error) {
+	rows := make([]any, 0, 7)
+	for _, id := range []string{"mock/api:free", "mock/settings-a:free", "mock/settings-b:free", "mock/extra-conversation:free", "mock/promo-free", "mock/settings-fee:free", "mock/not-chat:free", "openrouter/auto"} {
+		price := "0"
+		output := []string{"text"}
+		parameters := []string{"response_format", "max_tokens", "temperature"}
+		if id == "mock/settings-fee:free" {
+			price = "0.01"
+		}
+		if id == "mock/not-chat:free" {
+			output = []string{"embedding"}
+		}
+		if id == "mock/extra-conversation:free" {
+			parameters = []string{"max_tokens", "temperature"}
+		}
+		rows = append(rows, map[string]any{
+			"id": id, "name": id, "context_length": 32768,
+			"architecture":         map[string]any{"input_modalities": []string{"text"}, "output_modalities": output},
+			"pricing":              map[string]string{"prompt": "0", "completion": "0", "request": price},
+			"supported_parameters": parameters,
+		})
+	}
+	return json.Marshal(map[string]any{"data": rows})
 }
 
 // Never uses DB_DSN, .env, Docker's selected remote context or production volumes.
@@ -142,8 +179,7 @@ func TestIntegrationAPI(t *testing.T) {
 	t.Cleanup(func() { database.DB = previous })
 	t.Setenv("JWT_SECRET", "harness-only-signing-key")
 	t.Setenv("UPLOADS_DIR", t.TempDir())
-	t.Setenv("GROQ_API_KEY", "harness-only")
-	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY", "harness-only")
 	previousTransport := http.DefaultTransport
 	llmTransport := &integrationLLMTransport{base: previousTransport, responses: []string{
 		`{"intent":"create_expense","description":"Compra IA","amount":600,"type":"Parcelada","installments":3}`,

@@ -51,6 +51,7 @@ type ChatRequest struct {
 	Message        string        `json:"message" binding:"required"`
 	ConversationID uint          `json:"conversation_id"`
 	History        []ChatMessage `json:"history"`
+	ModelID        *string       `json:"model_id,omitempty"`
 }
 
 type ChatResponse struct {

@@ -57,6 +57,7 @@ func init() {
 		{Version: 6, Name: "add_patrimony", Checksum: "e36eee162ed6f93b0e9ee0e528edb522fde74cd103515e03f8a17b5ffb9c1877", Up: addPatrimony},
 		{Version: 7, Name: "add_investment_categories", Checksum: "7516246c77df8f5cbad3ffad6e69d02dca10d663c6af45cb61ee33f68bddeb64", Up: addInvestmentCategories},
 		{Version: 8, Name: "add_investment_category_cdi", Checksum: "1621a5189f65a3e22865ddee7176df41984c6d9cc18d1e20c46977cf9edff7c0", Up: addInvestmentCategoryCDI},
+		{Version: 9, Name: "add_assistant_model_preferences", Checksum: "243d3038cc85a78afecd8d841bae3a9246c0d49ef92540a44bf6b2d7d1549451", Up: addAssistantModelPreferences},
 	}
 }
 

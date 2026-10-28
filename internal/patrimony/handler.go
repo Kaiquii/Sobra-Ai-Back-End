@@ -2,6 +2,7 @@ package patrimony
 
 import (
 	"Sobra_Ai_Back-end/internal/database"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -101,17 +102,27 @@ func getPatrimony(c *gin.Context) {
 	if !ok {
 		return
 	}
+	data, err := ReadSnapshot(c.Request.Context(), database.DB, userID)
+	if err != nil {
+		serverError(c)
+		return
+	}
+	c.JSON(http.StatusOK, data)
+}
+
+// ReadSnapshot is shared by the API and the assistant; balances remain manual
+// and separate from monthly income/expenses. All reads use the authenticated ID.
+func ReadSnapshot(ctx context.Context, db *gorm.DB, userID uint) (map[string]any, error) {
 	var fgts FGTSBalance
 	items := []Investment{}
-	err := database.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ?", userID).First(&fgts).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		return tx.Where("user_id = ?", userID).Order("id asc").Find(&items).Error
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
-		serverError(c)
-		return
+		return nil, err
 	}
 	var fgtsData any
 	if fgts.UserID != 0 {
@@ -122,13 +133,12 @@ func getPatrimony(c *gin.Context) {
 	for _, item := range items {
 		// Keep the JSON monetary totals within the exact integer range of float64.
 		if item.AmountCents > (1<<53)-1-total-fgts.AmountCents {
-			serverError(c)
-			return
+			return nil, errors.New("patrimony total exceeds exact monetary range")
 		}
 		total += item.AmountCents
 		data = append(data, investmentData(item))
 	}
-	c.JSON(http.StatusOK, gin.H{"fgts": fgtsData, "investments": data, "total_fgts": float64(fgts.AmountCents) / 100, "total_investments": float64(total) / 100, "total_patrimony": float64(total+fgts.AmountCents) / 100})
+	return map[string]any{"fgts": fgtsData, "investments": data, "total_fgts": float64(fgts.AmountCents) / 100, "total_investments": float64(total) / 100, "total_patrimony": float64(total+fgts.AmountCents) / 100}, nil
 }
 
 func putFGTS(c *gin.Context) {

@@ -72,7 +72,7 @@ func loadRecentMessages(userID uint, conversationID uint, limit int) ([]Message,
 	var newest []Message
 	err := database.DB.
 		Where("conversation_id = ? AND user_id = ?", conversationID, userID).
-		Order("created_at desc").
+		Order("id desc").
 		Limit(limit).
 		Find(&newest).Error
 	if err != nil {
@@ -87,8 +87,27 @@ func loadRecentMessages(userID uint, conversationID uint, limit int) ([]Message,
 }
 
 func buildConversationFromMessages(messages []Message, currentMessage string) []GeminiContent {
+	// Bound cost and keep the newest server-owned context. Never trust client
+	// history or promote stored text into system/developer instructions.
+	if len(messages) > 20 {
+		messages = messages[len(messages)-20:]
+	}
+	budget := 24000
+	start := len(messages)
+	for start > 0 {
+		length := len(messages[start-1].Content)
+		if length > budget {
+			break
+		}
+		budget -= length
+		start--
+	}
+	messages = messages[start:]
 	contents := make([]GeminiContent, 0, len(messages)+1)
 	for _, message := range messages {
+		if message.Role != "user" && message.Role != "assistant" && message.Role != "model" {
+			continue
+		}
 		content := strings.TrimSpace(message.Content)
 		if content == "" {
 			continue
