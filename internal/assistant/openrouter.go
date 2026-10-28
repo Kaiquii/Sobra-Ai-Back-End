@@ -46,6 +46,7 @@ type openRouterClient struct {
 	models     []AssistantModel
 	httpClient *http.Client
 	usedModel  string
+	automatic  bool
 }
 
 type openRouterMessage struct {
@@ -84,6 +85,7 @@ var openRouterCooldowns = struct {
 }{until: make(map[string]time.Time)}
 
 func newAssistantGeneratorForModel(ctx context.Context, modelID string) (textGenerator, error) {
+	modelID = strings.TrimSpace(modelID)
 	key := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
 	if key == "" {
 		return nil, OpenRouterError{Code: "assistant_not_configured", StatusCode: http.StatusServiceUnavailable}
@@ -92,14 +94,14 @@ func newAssistantGeneratorForModel(ctx context.Context, modelID string) (textGen
 	if err != nil {
 		return nil, err
 	}
-	// A stored preference may disappear from the free catalog. The recommended
-	// eligible model then takes over; request-supplied selections are validated
-	// by the HTTP handler before reaching this constructor.
+	// Empty means server-owned automatic routing. Explicit legacy selections
+	// are prioritized only while present in the verified free catalog; the HTTP
+	// handler validates request-supplied IDs before reaching this constructor.
 	models = orderedAssistantModels(models, modelID)
 	hash := sha256.Sum256([]byte(key))
 	return &openRouterClient{
 		ctx: ctx, apiKey: key, account: hex.EncodeToString(hash[:]), models: models,
-		httpClient: &http.Client{Timeout: 18 * time.Second},
+		httpClient: &http.Client{Timeout: 18 * time.Second}, automatic: modelID == "",
 	}, nil
 }
 
@@ -138,12 +140,24 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 	}
 	lastError := OpenRouterError{Code: "assistant_models_unavailable", StatusCode: http.StatusServiceUnavailable, RetryAfterSeconds: 30}
 	attempts := 0
-	for _, model := range client.models {
+	models := client.models
+	if client.automatic {
+		preferred := openRouterAutoRouting.preferred(client.account, models, time.Now())
+		if preferred != "" && routerCooldownRemaining(client.account+":"+preferred) > 0 {
+			openRouterAutoRouting.forget(client.account, preferred)
+			preferred = ""
+		}
+		models = orderedAssistantModels(models, preferred)
+	}
+	for _, model := range models {
 		if attempts >= openRouterMaxAttempts {
 			break
 		}
 		if ctx.Err() != nil {
 			return "", OpenRouterError{Code: "assistant_request_cancelled", StatusCode: http.StatusRequestTimeout}
+		}
+		if retry := routerCooldownRemaining(client.account); retry > 0 {
+			return "", OpenRouterError{Code: "assistant_quota_exceeded", StatusCode: http.StatusTooManyRequests, RetryAfterSeconds: retry, Global: true}
 		}
 		cooldownKey := client.account + ":" + model.ID
 		if retry := routerCooldownRemaining(cooldownKey); retry > 0 {
@@ -157,6 +171,9 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 			attempts++
 		}
 		if err == nil {
+			if client.automatic {
+				openRouterAutoRouting.remember(client.account, client.usedModel, time.Now())
+			}
 			return text, nil
 		}
 		var typed OpenRouterError
@@ -174,6 +191,7 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 			typed.Code == "assistant_user_limit" || typed.Code == "assistant_configuration_error" {
 			return "", typed
 		}
+		openRouterAutoRouting.forget(client.account, model.ID)
 		if attempted {
 			setRouterCooldown(cooldownKey, max(typed.RetryAfterSeconds, 15))
 		}
@@ -199,6 +217,12 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 	request.Header.Set("X-OpenRouter-Title", "SobraAi")
 	if ctx.Err() != nil {
 		return "", false, OpenRouterError{Code: "assistant_request_cancelled", StatusCode: http.StatusRequestTimeout}
+	}
+	// Another in-flight request can discover an account-wide limit after this
+	// generation started. Recheck at the actual attempt boundary so its fallback
+	// neither spends another user's allowance nor sends another provider call.
+	if retry := routerCooldownRemaining(client.account); retry > 0 {
+		return "", false, OpenRouterError{Code: "assistant_quota_exceeded", StatusCode: http.StatusTooManyRequests, RetryAfterSeconds: retry, Global: true}
 	}
 	if err := reserveAssistantCall(ctx); err != nil {
 		return "", false, err

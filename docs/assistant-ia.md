@@ -1,5 +1,10 @@
 # Assistente IA
 
+**Roteamento automatico do servidor:** o app deixa de escolher modelos. POST sem
+`model_id` ou com string vazia sempre usa roteamento automatico do servidor,
+ignorando preferencias manuais antigas sem apaga-las. A escolha legada explicita
+continua compativel, com validacao gratuita, fallback e os mesmos limites de uso.
+
 **Estado em 28/10/2026:** OpenRouter e melhorias de contexto publicados em
 producao, com catalogo completo e dinamico de modelos gratuitos. A correção da
 lista foi publicada sem nova migration; schema permanece 9. Validacoes e
@@ -136,7 +141,7 @@ Antes de adicionar qualquer condicao baseada em frase, perguntar:
 
 Se a resposta for sim, usar o modelo para interpretar e manter o Go como executor seguro.
 
-## Catalogo e preferencia do usuario
+## Roteamento automatico e compatibilidade do catalogo
 
 Todas as rotas abaixo exigem JWT e respeitam o bloqueio de acesso.
 
@@ -149,12 +154,21 @@ Todas as rotas abaixo exigem JWT e respeitam o bloqueio de acesso.
 - PUT `/api/assistant/model-preference`: corpo `{"model_id":"id-retornado"}`;
   `{"model_id":""}` restaura Recomendado. Retorna o mesmo formato do GET.
 - POST `/api/assistant/chat` preserva os campos existentes. O campo opcional
-  `model_id` pode escolher um modelo para essa mensagem sem alterar a preferencia;
-  ausente usa a preferencia salva, vazio usa Recomendado. Pago/desconhecido: 400.
+  `model_id` explicito continua sendo uma sugestao prioritaria legada para aquela
+  mensagem, validada no catalogo gratuito e sujeita a fallback. Ausente ou vazio
+  significa SEMPRE automatico: nao le nem depende da preferencia salva. Modelo
+  pago/desconhecido enviado explicitamente continua retornando 400.
 
 Somente o dono autenticado pode ler/gravar sua preferencia. Migration
 `000009_add_assistant_model_preferences` cria a tabela com FK e exclusao em cascata.
 A API valida migrations; executar `migrate up` explicitamente na publicacao.
+As rotas GET/PUT de preferencia e a tabela permanecem para clientes antigos;
+valores e datas ja salvos nao sao apagados nem regravados pelo chat. A nova regra
+substitui intencionalmente a antiga semantica de usar a preferencia quando o campo
+era omitido, pois o servidor nao pode distinguir dois clientes que omitem o mesmo
+campo. Clientes antigos continuam recebendo os mesmos formatos e erros; apenas
+um `model_id` explicito influencia a prioridade da mensagem. O novo app nao precisa
+consultar catalogo/preferencia nem realizar PUT de reset ao entrar.
 
 O catalogo lista automaticamente TODOS os modelos de conversa gratuitos retornados
 pelo OpenRouter, sem shortlist ou limite de quantidade. `OPENROUTER_MODELS` nao
@@ -173,21 +187,30 @@ opacos sao excluidos; `openrouter/free` pode aparecer como roteador exclusivamen
 gratuito. Cache de cinco minutos com espera cancelavel e cache curto de falhas;
 se nao for possivel revalidar apos expirar, bloquear em vez de arriscar cobranca.
 
-O tamanho da lista nao limita as opcoes de escolha. O limite de tres tentativas
+O tamanho da lista nao limita os candidatos do servidor. O limite de tres tentativas
 por etapa e apenas protecao contra consumo excessivo da cota e demora ao responder.
-A escolha do usuario e tentada primeiro, seguida do recomendado e de alternativas
-gratuitas. Disponibilidade gratuita pode variar por modelo, capacidade ou politica
+No modo automatico, o servidor reutiliza por ate cinco minutos o ultimo modelo
+gratuito que respondeu corretamente para a conta. Erros descartam essa prioridade;
+um modelo retirado do catalogo nao volta a ser utilizado por esse estado. Depois
+vem o recomendado e as demais alternativas elegiveis. Uma sugestao explicita de
+cliente antigo mantem prioridade, sem impedir fallback ou alterar os limites.
+Disponibilidade gratuita pode variar por modelo, capacidade ou politica
 de dados; o catalogo nao garante capacidade instantanea. A politica `deny` continua
 ativa; nao liberar uso para treinamento automaticamente para fazer uma opcao funcionar.
 
-O seletor no topo do chat e responsabilidade do app. Carregar a lista do backend,
-salvar pelo PUT e preservar `conversation_id`, mensagens e rascunho do compositor.
-Nao fixar IDs nem colocar chaves no app. Uma falha do catalogo deve permitir retry
-sem apagar a conversa. Tratar `assistant_quota_exceeded` e demais erros
-`assistant_*`, preservando leitura de respostas antigas `gemini_quota_exceeded`.
-Ao abrir a selecao de modelo, reconsultar o catalogo ou renovar se estiver antigo,
-sem deixar a mesma lista presa a uma conversa longa. A API atualiza o cache sob
-demanda a cada cinco minutos; o app nao precisa receber novos nomes por APK.
+O novo app remove o seletor e envia somente mensagem e `conversation_id`,
+preservando historico e compositor. Nao reenviar POST automaticamente para trocar
+modelo; isso e responsabilidade do servidor antes de executar a acao financeira.
+Nao fixar IDs nem colocar chaves no app. Tratar `assistant_quota_exceeded`,
+`assistant_user_limit` e demais erros `assistant_*` com `retry_after_seconds`,
+preservando leitura de respostas antigas `gemini_quota_exceeded`.
+
+O OpenRouter nao documenta um contador de cota restante por modelo em cada resposta
+de sucesso. O roteamento nao inventa previsao: usa cooldown, `Retry-After` e reset
+reais quando disponiveis, e fallback limitado em erro/indisponibilidade. Cota global
+da conta e limite por usuario interrompem tentativas em vez de tentar contorna-los.
+Referencia: [limites oficiais do OpenRouter](https://openrouter.ai/docs/api_reference/limits).
+Nenhuma rotacao apaga contadores, repete mensagens ou confirma cadastros por conta propria.
 
 ## Configuracao e publicacao
 
@@ -202,11 +225,11 @@ locais, consulta de catalogo e preferencias nao consomem chamadas ao modelo.
 Nao configurar fallback pago nem plugins. A cota gratuita da conta e compartilhada
 por todos os usuarios e modelos; ela nao aumenta ao selecionar outra opcao.
 
-Antes de publicar: harness completo com integracao, teste sintetico com modelo
-real, backup restaurado em PostgreSQL isolado, migration 8->9, comparacao dos dados
-financeiros, ensaio de inicializacao/rotas da release e da imagem de recuperacao.
-Preservar configuracao efetiva da API; apenas substituir variaveis de provedores
-pela chave OpenRouter. Nao reiniciar banco ou proxy.
+Esta evolucao de roteamento nao exige nova migration nem altera a configuracao de
+provedores; parte do schema 9 ja publicado. Uma publicacao futura requer autorizacao
+especifica, harness completo com integracao e verificacao das imagens/recuperacao,
+preservando banco, preferencias, ambiente, volumes e proxy. O upgrade 8->9 e a
+substituicao de variaveis de provedor pertencem a publicacao inicial historica.
 
 O binario antigo conhece apenas schema 8 e recusa schema 9. O rollback operacional
 precisa do binario anterior com o registro imutavel da migration 9, preservando

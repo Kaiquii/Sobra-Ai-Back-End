@@ -69,11 +69,9 @@ func chat(c *gin.Context) {
 		c.JSON(http.StatusOK, ChatResponse{ConversationID: conversation.ID, Reply: "Nao ha cadastro pendente para confirmar. Informe os dados da despesa."})
 		return
 	}
-	selected, err := preferredAssistantModel(userID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao carregar preferencia de modelo"})
-		return
-	}
+	// Omitted/blank model_id always delegates routing to the backend. Old saved
+	// preferences remain available to legacy endpoints but never pin the new app.
+	selected := ""
 	if req.ModelID != nil {
 		selected = strings.TrimSpace(*req.ModelID)
 		if selected != "" {

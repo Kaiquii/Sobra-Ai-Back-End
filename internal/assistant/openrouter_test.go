@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -46,6 +47,9 @@ func setupRouterTest(t *testing.T, handler http.HandlerFunc) {
 	openRouterCooldowns.Lock()
 	openRouterCooldowns.until = make(map[string]time.Time)
 	openRouterCooldowns.Unlock()
+	openRouterAutoRouting.Lock()
+	openRouterAutoRouting.accounts = nil
+	openRouterAutoRouting.Unlock()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	address, err := url.Parse(server.URL)
@@ -518,5 +522,142 @@ func TestOpenRouterAdaptsHistoryToSmallContextWithoutLosingSafetyOrCurrentMessag
 	var typed OpenRouterError
 	if !errors.As(err, &typed) || typed.Code != "assistant_model_context_exceeded" {
 		t.Fatalf("mandatory context overflow must fail safely: %v", err)
+	}
+}
+
+func TestOpenRouterConcurrentGlobalCooldownStopsFallbackBeforeQuotaReservation(t *testing.T) {
+	globalArrived := make(chan struct{})
+	failingModelArrived := make(chan struct{})
+	releaseGlobal := make(chan struct{})
+	releaseModelFailure := make(chan struct{})
+	var releaseGlobalOnce, releaseModelOnce sync.Once
+	var firstArrivedOnce, secondArrivedOnce sync.Once
+	var globalModelCalls, failingModelCalls, totalCalls, unexpectedCalls atomic.Int32
+	setupRouterTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeTestCatalog(w)
+			return
+		}
+		totalCalls.Add(1)
+		var body openRouterRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		switch body.Model {
+		case "test/first:free":
+			if globalModelCalls.Add(1) != 1 {
+				unexpectedCalls.Add(1)
+				writeRouterReply(w, "Unexpected fallback")
+				return
+			}
+			firstArrivedOnce.Do(func() { close(globalArrived) })
+			<-releaseGlobal
+			w.Header().Set("Retry-After", "60")
+			w.Header().Set("X-RateLimit-Limit", "50")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"error":{"code":429,"message":"Rate limit exceeded","metadata":{"error_type":"rate_limit_exceeded"}}}`)
+		case "test/second:free":
+			if failingModelCalls.Add(1) != 1 {
+				unexpectedCalls.Add(1)
+				writeRouterReply(w, "Unexpected fallback")
+				return
+			}
+			secondArrivedOnce.Do(func() { close(failingModelArrived) })
+			<-releaseModelFailure
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			unexpectedCalls.Add(1)
+			writeRouterReply(w, "Unexpected fallback")
+		}
+	})
+	// Cleanup cancels and joins both workers before setupRouterTest restores the
+	// transport. Released handlers and the client's 18-second timeout also bound
+	// shutdown if a barrier assertion fails while a request is still in flight.
+	releaseA := func() { releaseGlobalOnce.Do(func() { close(releaseGlobal) }) }
+	releaseB := func() { releaseModelOnce.Do(func() { close(releaseModelFailure) }) }
+	sharedContext, cancel := context.WithCancel(context.Background())
+	var workers sync.WaitGroup
+	t.Cleanup(func() {
+		cancel()
+		releaseA()
+		releaseB()
+		workers.Wait()
+	})
+	t.Setenv("OPENROUTER_USER_RPM", "6")
+	t.Setenv("OPENROUTER_USER_DAILY_LIMIT", "20")
+	firstCtx := withAssistantUsage(sharedContext, 8791)
+	secondCtx := withAssistantUsage(sharedContext, 8792)
+	firstIdentity := firstCtx.Value(assistantUsageContextKey{}).(assistantUsageIdentity)
+	secondIdentity := secondCtx.Value(assistantUsageContextKey{}).(assistantUsageIdentity)
+	assistantCallUsage.Lock()
+	delete(assistantCallUsage.users, firstIdentity)
+	delete(assistantCallUsage.users, secondIdentity)
+	assistantCallUsage.Unlock()
+	first, err := newAssistantGeneratorForModel(firstCtx, "test/first:free")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newAssistantGeneratorForModel(secondCtx, "test/second:free")
+	if err != nil {
+		t.Fatal(err)
+	}
+	account := first.(*openRouterClient).account
+	openRouterAutoRouting.remember(account, "test/first:free", time.Now())
+	firstDone := make(chan error, 1)
+	secondDone := make(chan error, 1)
+	workers.Add(2)
+	go func() {
+		defer workers.Done()
+		_, err := first.generateText(GeminiRequest{})
+		firstDone <- err
+	}()
+	go func() {
+		defer workers.Done()
+		_, err := second.generateText(GeminiRequest{})
+		secondDone <- err
+	}()
+	wait := func(signal <-chan struct{}, name string) {
+		t.Helper()
+		select {
+		case <-signal:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for %s", name)
+		}
+	}
+	result := func(done <-chan error) error {
+		t.Helper()
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for provider request result")
+			return nil
+		}
+	}
+	wait(globalArrived, "first request in flight")
+	wait(failingModelArrived, "second request in flight")
+	releaseA()
+	if code, _, ok := openRouterErrorInfo(result(firstDone)); !ok || code != "assistant_quota_exceeded" {
+		t.Fatal("first request must record account-wide quota error")
+	}
+	if routerCooldownRemaining(account) < 59 {
+		t.Fatal("account-wide cooldown must be recorded before the model failure is released")
+	}
+	releaseB()
+	if code, _, ok := openRouterErrorInfo(result(secondDone)); !ok || code != "assistant_quota_exceeded" {
+		t.Fatal("second request must observe the concurrent global gate before fallback")
+	}
+	if totalCalls.Load() != 2 || unexpectedCalls.Load() != 0 {
+		t.Fatalf("a known global block must prevent every next HTTP attempt: total=%d extra=%d", totalCalls.Load(), unexpectedCalls.Load())
+	}
+	assistantCallUsage.Lock()
+	firstCount := assistantCallUsage.users[firstIdentity].daily
+	secondCount := assistantCallUsage.users[secondIdentity].daily
+	assistantCallUsage.Unlock()
+	if firstCount != 1 || secondCount != 1 {
+		t.Fatalf("blocked fallback consumed per-user allowance: first=%d second=%d", firstCount, secondCount)
+	}
+	if preferred := openRouterAutoRouting.preferred(account, first.(*openRouterClient).models, time.Now()); preferred != "test/first:free" {
+		t.Fatalf("global quota must not invalidate observed model health: %s", preferred)
 	}
 }
