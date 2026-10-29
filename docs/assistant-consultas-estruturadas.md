@@ -1,7 +1,8 @@
 # Consultas e orientacao com escopo preservado
 
-Evolucao local de 29/10/2026 apos os testes do segundo video. Ainda nao publicada.
-A publicacao anterior permanece documentada em [registro da release](publicacao-consultas-ia.md).
+Evolucao publicada em 29/10/2026 as 14:02 de Sao Paulo apos os testes do segundo
+video. Evidencias e rollback em [publicacao das intencoes](publicacao-intencoes-ia.md).
+A publicacao anterior permanece em [registro anterior](publicacao-consultas-ia.md).
 Nao altera schema nem contratos HTTP do aplicativo.
 
 ## Interpretacao e dados
@@ -141,5 +142,6 @@ O formato final foi avaliado com tres pedidos reais aprovados (segundo maior,
 orcamento e maior mes anual). A pergunta de dois meses teve replay offline da
 captura anterior; nao se afirma que recebeu uma nova completion no formato final.
 Isso valida estes casos e preserva o limite economico, sem garantir que qualquer
-modelo gratuito entenda toda forma de perguntar. A publicacao desta revisao ainda
-esta pendente.
+modelo gratuito entenda toda forma de perguntar. A revisao foi publicada com
+backup restaurado isoladamente e vinte verificacoes GET aprovadas, sem novas
+completions no deploy.
