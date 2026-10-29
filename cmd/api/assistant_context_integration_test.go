@@ -31,6 +31,7 @@ func TestIntegrationAssistantContextAndPatrimony(t *testing.T) {
 		`{"intent":"general","reply":"Entendi: vamos acompanhar seus gastos com Mercado."}`,
 		`{"intent":"category_expenses","category_name":"Mercado","month":9,"year":2026}`,
 		`{"intent":"app_help","reply":"Abra os relatorios e selecione setembro para acompanhar os gastos de Mercado."}`,
+		`{"intent":"general","reply":"Vamos continuar com a ajuda dos relatorios."}`,
 		`{"intent":"patrimony_summary"}`,
 		`{"intent":"fgts_balance"}`,
 		`{"intent":"fgts_balance"}`,
@@ -135,35 +136,38 @@ func TestIntegrationAssistantContextAndPatrimony(t *testing.T) {
 	}
 	request("PUT", "/api/assistant/model-preference", ownerToken, map[string]any{"model_id": "mock/api:free"}, 200)
 	request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "onde eu vejo isso no app?", "model_id": ""}, 200)
-	if prompt := providerCalls()[2]; !strings.Contains(prompt, "75.25") || !strings.Contains(prompt, "get_category_expenses") || !strings.Contains(prompt, "e no mes passado?") || strings.Contains(prompt, "FORGED_CLIENT_HISTORY") {
-		t.Fatal("app help or model override lost authenticated financial history")
+	if prompt := providerCalls()[2]; strings.Contains(prompt, "75.25") || !strings.Contains(prompt, "get_category_expenses") || !strings.Contains(prompt, "e no mes passado?") || strings.Contains(prompt, "FORGED_CLIENT_HISTORY") {
+		t.Fatal("app help lost query history or sent a stored financial amount to the model")
 	}
 	request("POST", "/api/assistant/chat", otherToken, map[string]any{"conversation_id": conversationID, "message": "mostra a conversa"}, 404)
 	request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "oi", "model_id": "openai/paid"}, 400)
-	request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "sim"}, 200)
 	if len(providerCalls()) != 3 {
-		t.Fatal("rejected model, foreign conversation or confirmation called provider")
+		t.Fatal("rejected model or foreign conversation called provider")
+	}
+	continued := request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "sim"}, 200)
+	if continued["tool_call"] != "general" || len(providerCalls()) != 4 {
+		t.Fatalf("affirmation after app help did not continue the conversation once: %+v", continued)
 	}
 	patrimony := request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "qto tenho guardado juntando FGTS e investimento?"}, 200)
 	data := patrimony["tool_result"].(map[string]any)
 	if patrimony["tool_call"] != "patrimony_summary" || data["total_fgts"] != 1000.25 || data["total_investments"] != 200.50 || data["total_patrimony"] != 1200.75 {
 		t.Fatalf("patrimony facts not isolated or wrong totals: %+v", patrimony)
 	}
-	if len(providerCalls()) != 4 || strings.Contains(fmt.Sprint(data), "RESERVA_OTHER_SECRET") || !strings.Contains(patrimony["reply"].(string), "1.200,75") {
+	if len(providerCalls()) != 5 || strings.Contains(fmt.Sprint(data), "RESERVA_OTHER_SECRET") || !strings.Contains(patrimony["reply"].(string), "1.200,75") {
 		t.Fatal("patrimony reply lost current facts or used a second inference")
 	}
 	request("PUT", "/api/patrimony/fgts", ownerToken, map[string]any{"amount": 0}, 200)
 	zero := request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "e meu fgts?"}, 200)["tool_result"].(map[string]any)
-	if zero["fgts"] == nil || zero["total_fgts"] != float64(0) || len(providerCalls()) != 5 {
+	if zero["fgts"] == nil || zero["total_fgts"] != float64(0) || len(providerCalls()) != 6 {
 		t.Fatalf("registered zero FGTS confused with missing data: %+v", zero)
 	}
 	request("DELETE", "/api/patrimony/fgts", ownerToken, nil, 200)
 	absent := request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "veja o fgts de novo"}, 200)["tool_result"].(map[string]any)
-	if absent["fgts"] != nil || len(providerCalls()) != 6 {
+	if absent["fgts"] != nil || len(providerCalls()) != 7 {
 		t.Fatalf("missing FGTS is not distinguished from zero: %+v", absent)
 	}
 	investments := request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "e os investimentos?"}, 200)["tool_result"].(map[string]any)
-	if investments["total_investments"] != 200.50 || len(investments["investments"].([]any)) != 1 || strings.Contains(fmt.Sprint(investments), "RESERVA_OTHER_SECRET") || len(providerCalls()) != 7 {
+	if investments["total_investments"] != 200.50 || len(investments["investments"].([]any)) != 1 || strings.Contains(fmt.Sprint(investments), "RESERVA_OTHER_SECRET") || len(providerCalls()) != 8 {
 		t.Fatalf("investment query is not isolated: %+v", investments)
 	}
 	if after := request("GET", "/api/reports/summary?month=9&year=2026", ownerToken, nil, 200); !reflect.DeepEqual(monthlyBefore, after) {
@@ -174,18 +178,18 @@ func TestIntegrationAssistantContextAndPatrimony(t *testing.T) {
 		t.Fatal(err)
 	}
 	proposal := request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "cadastra sessenta reais de compra em Mercado, salario, unica em dois de outubro de 2031"}, 200)
-	if proposal["tool_result"].(map[string]any)["status"] != "needs_confirmation" || len(providerCalls()) != 8 {
+	if proposal["tool_result"].(map[string]any)["status"] != "needs_confirmation" || len(providerCalls()) != 9 {
 		t.Fatalf("proposal should use one call and require confirmation: %+v", proposal)
 	}
 	if err := db.Model(&expenses.Expense{}).Where("user_id = ?", owner.ID).Count(&afterCount).Error; err != nil || afterCount != beforeCount {
 		t.Fatalf("proposal wrote a purchase before confirmation: %d -> %d err %v", beforeCount, afterCount, err)
 	}
 	created := request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "sim"}, 200)
-	if created["tool_result"].(map[string]any)["status"] != "created" || len(providerCalls()) != 8 {
+	if created["tool_result"].(map[string]any)["status"] != "created" || len(providerCalls()) != 9 {
 		t.Fatalf("confirmation should transact without another LLM call: %+v", created)
 	}
 	request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "sim"}, 200)
-	if err := db.Model(&expenses.Expense{}).Where("user_id = ?", owner.ID).Count(&afterCount).Error; err != nil || afterCount != beforeCount+1 || len(providerCalls()) != 8 {
+	if err := db.Model(&expenses.Expense{}).Where("user_id = ?", owner.ID).Count(&afterCount).Error; err != nil || afterCount != beforeCount+1 || len(providerCalls()) != 9 {
 		t.Fatalf("confirmation duplicated purchase or called provider: count %d -> %d err %v", beforeCount, afterCount, err)
 	}
 	var conversations int64

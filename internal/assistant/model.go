@@ -68,6 +68,7 @@ type GeminiRequest struct {
 	Contents          []GeminiContent `json:"contents"`
 	Tools             []GeminiTool    `json:"tools,omitempty"`
 	GenerationConfig  map[string]any  `json:"generationConfig,omitempty"`
+	CategoryNames     []string        `json:"-"`
 	DebugStage        string          `json:"-"`
 }
 

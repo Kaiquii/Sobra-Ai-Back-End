@@ -28,6 +28,7 @@ type AssistantModel struct {
 	Recommended bool   `json:"recommended"`
 
 	SupportsResponseFormat      bool `json:"-"`
+	SupportsStructuredOutputs   bool `json:"-"`
 	SupportsTemperature         bool `json:"-"`
 	SupportsMaxTokens           bool `json:"-"`
 	SupportsMaxCompletionTokens bool `json:"-"`
@@ -154,6 +155,7 @@ func fetchFreeAssistantModels(ctx context.Context) ([]AssistantModel, error) {
 		models = append(models, AssistantModel{
 			ID: entry.ID, Name: name, Description: description,
 			SupportsResponseFormat:      slices.Contains(entry.SupportedParameters, "response_format"),
+			SupportsStructuredOutputs:   slices.Contains(entry.SupportedParameters, "structured_outputs"),
 			SupportsTemperature:         slices.Contains(entry.SupportedParameters, "temperature"),
 			SupportsMaxTokens:           slices.Contains(entry.SupportedParameters, "max_tokens"),
 			SupportsMaxCompletionTokens: slices.Contains(entry.SupportedParameters, "max_completion_tokens"),

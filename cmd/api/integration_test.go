@@ -530,8 +530,8 @@ func testAssistantAnalysisAndDraftContinuity(t *testing.T, db *gorm.DB, request 
 	provider.mu.Lock()
 	analysisPrompt := provider.prompts[beforeCalls]
 	provider.mu.Unlock()
-	if strings.Contains(analysisPrompt, "Categoria privada") || !strings.Contains(analysisPrompt, "months_with_records") || !strings.Contains(analysisPrompt, "131.34") || !strings.Contains(analysisPrompt, "113.36") {
-		t.Fatal("snapshot missing current facts or leaked another tenant")
+	if strings.Contains(analysisPrompt, "Categoria privada") || strings.Contains(analysisPrompt, "months_with_records") || strings.Contains(analysisPrompt, "131.34") || strings.Contains(analysisPrompt, "113.36") {
+		t.Fatal("interpreter received annual financial facts instead of scope-only context")
 	}
 	first := request("POST", "/api/assistant/chat", owner, `{"message":"Mudando de assunto, gastei 10 reais com chocolate"}`, 200)
 	id := uint(first["conversation_id"].(float64))

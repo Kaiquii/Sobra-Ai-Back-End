@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 const openRouterRequestBudget = 45 * time.Second
@@ -61,7 +62,7 @@ type openRouterRequest struct {
 	Temperature         *float64            `json:"temperature,omitempty"`
 	MaxTokens           int                 `json:"max_tokens,omitempty"`
 	MaxCompletionTokens int                 `json:"max_completion_tokens,omitempty"`
-	ResponseFormat      map[string]string   `json:"response_format,omitempty"`
+	ResponseFormat      map[string]any      `json:"response_format,omitempty"`
 	Reasoning           map[string]bool     `json:"reasoning,omitempty"`
 	Provider            map[string]any      `json:"provider"`
 }
@@ -101,6 +102,8 @@ const (
 	routerIntentContentFiltered
 	routerIntentProviderError
 	routerIntentToolCalls
+	routerIntentConflictingAction
+	routerIntentActionNotRequested
 )
 
 func (reason routerInvalidResponseReason) String() string {
@@ -125,6 +128,10 @@ func (reason routerInvalidResponseReason) String() string {
 		return "intent_provider_error"
 	case routerIntentToolCalls:
 		return "intent_tool_calls"
+	case routerIntentConflictingAction:
+		return "intent_conflicting_action"
+	case routerIntentActionNotRequested:
+		return "intent_action_not_requested"
 	default:
 		return "invalid_response"
 	}
@@ -337,6 +344,13 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 	if req.DebugStage == "assistant_intent" {
 		// JSON parsing happens before success so even models without native JSON
 		// formatting can fall back safely without executing an invalid intent.
+		if payload.ResponseFormat["type"] == "json_schema" {
+			normalized, err := normalizeAssistantSchemaResponse(cleanJSONText(text))
+			if err != nil {
+				return invalidRouterResponse(req.DebugStage, routerIntentJSONInvalid)
+			}
+			text = normalized
+		}
 		intent, err := parseFinancialIntent(cleanJSONText(text))
 		if err != nil || strings.TrimSpace(intent.Intent) == "" {
 			var object map[string]any
@@ -345,12 +359,59 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 			}
 			return invalidRouterResponse(req.DebugStage, routerIntentUnsupported)
 		}
+		// A read plan cannot also be an expense mutation. Reject the conflict
+		// before publishing any model output or marking this model successful.
+		if intent.Intent == "create_expense" && intent.provided["query"] != nil {
+			return invalidRouterResponse(req.DebugStage, routerIntentConflictingAction)
+		}
+		if intent.Intent == "create_expense" && routerLastUserRequestsRead(req) {
+			return invalidRouterResponse(req.DebugStage, routerIntentActionNotRequested)
+		}
 	}
 	client.usedModel = model.ID
 	if result.Model != "" {
 		client.usedModel = result.Model
 	}
 	return text, true, nil
+}
+
+// An explicit question must not become an expense draft merely because the
+// model labelled it as a creation. This guard only rejects; it never guesses a
+// different intent or extracts financial values from the user's message.
+func routerLastUserRequestsRead(req GeminiRequest) bool {
+	for index := len(req.Contents) - 1; index >= 0; index-- {
+		role := strings.TrimSpace(req.Contents[index].Role)
+		if role != "user" && role != "" {
+			continue
+		}
+		text := strings.TrimSpace(routerContent(req.Contents[index]))
+		word, rest := routerLeadingWord(text)
+		if strings.EqualFold(word, "e") {
+			trimmed := strings.TrimLeftFunc(rest, unicode.IsSpace)
+			if trimmed == rest {
+				return false
+			}
+			word, _ = routerLeadingWord(trimmed)
+		}
+		switch strings.ToLower(word) {
+		case "qual", "quanto", "quais":
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func routerLeadingWord(text string) (string, string) {
+	end := len(text)
+	for index, char := range text {
+		if !unicode.IsLetter(char) && !unicode.IsDigit(char) && char != '_' {
+			end = index
+			break
+		}
+	}
+	return text[:end], text[end:]
 }
 
 func (client *openRouterClient) responseModelAllowed(requested, actual string) bool {
@@ -380,15 +441,19 @@ func routerPayload(model AssistantModel, req GeminiRequest) (openRouterRequest, 
 		temperature := routerTemperature(req.GenerationConfig)
 		payload.Temperature = &temperature
 	}
-	if req.DebugStage == "assistant_intent" && model.SupportsResponseFormat {
-		payload.ResponseFormat = map[string]string{"type": "json_object"}
+	if req.DebugStage == "assistant_intent" {
+		if model.SupportsStructuredOutputs {
+			payload.ResponseFormat = assistantResponseFormat(req.CategoryNames)
+		} else if model.SupportsResponseFormat {
+			payload.ResponseFormat = map[string]any{"type": "json_object"}
+		}
 	}
 	if req.DebugStage == "assistant_intent" && model.CanDisableReasoning {
 		// Interpretation has a shared output budget. Disable optional
 		// reasoning, rather than merely hiding it and consuming the same budget.
 		payload.Reasoning = map[string]bool{"enabled": false}
 	}
-	if req.DebugStage == "assistant_intent" && !model.SupportsResponseFormat {
+	if req.DebugStage == "assistant_intent" && !model.SupportsResponseFormat && !model.SupportsStructuredOutputs {
 		const instruction = "Responda exclusivamente com um objeto JSON valido com a intencao e os campos pedidos, sem cercas de codigo nem texto fora do objeto. A string reply pode conter Markdown simples, com quebras de linha escapadas como \\n."
 		if len(payload.Messages) > 0 && payload.Messages[0].Role == "system" {
 			payload.Messages[0].Content += "\n" + instruction
@@ -408,8 +473,16 @@ func routerPayload(model AssistantModel, req GeminiRequest) (openRouterRequest, 
 	}
 	outputBudget := min(outputLimit, (model.ContextLength-256)/4)
 	inputBudget := model.ContextLength - outputBudget - 256
+	formatSize := 0
+	if payload.ResponseFormat != nil {
+		encoded, err := json.Marshal(payload.ResponseFormat)
+		if err != nil {
+			return openRouterRequest{}, OpenRouterError{Code: "assistant_invalid_request", StatusCode: http.StatusBadRequest}
+		}
+		formatSize = len(encoded)
+	}
 	messageSize := func(messages []openRouterMessage) int {
-		total := 0
+		total := formatSize
 		for _, message := range messages {
 			total += len(message.Content) + 16
 		}

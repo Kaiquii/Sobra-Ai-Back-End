@@ -69,9 +69,17 @@ func analysisYears(message string, history []Message, now time.Time) []int {
 		return years
 	}
 	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role == "user" && analysisYearPattern.MatchString(history[i].Content) {
-			appendExplicitYears(history[i].Content)
+		if history[i].Role != "user" {
+			continue
+		}
+		appendExplicitYears(history[i].Content)
+		if len(years) > 0 {
 			return years
+		}
+		historical := strings.ToLower(strings.Join(strings.Fields(history[i].Content), " "))
+		historical = strings.NewReplacer("ó", "o", "ú", "u").Replace(historical)
+		if analysisRelativeYearPattern.MatchString(historical) {
+			return analysisYears(history[i].Content, nil, now)
 		}
 	}
 	return []int{now.Year()}
@@ -301,15 +309,7 @@ func analysisReply(intent financialIntent) (bool, string, string, any) {
 	validation := map[string]any{"facts": intent.facts, "verified_calculations": calculations}
 	data := []byte(analysisFactsJSON(validation))
 	if err != nil || intent.facts == nil || strings.TrimSpace(intent.Reply) == "" || !financialNumbersSupported(intent.Reply, data) {
-		if intent.Intent == "financial_analysis" {
-			if reply, ok := verifiedAnalysisSummary(intent.facts); ok {
-				return true, reply, "financial_analysis", map[string]any{
-					"status": "read_only", "as_of": intent.facts["as_of"], "years": intent.facts["years"],
-					"reply_source": "verified_summary", "analysis_status": "analysis_not_verified",
-				}
-			}
-		}
-		return true, "Nao consegui validar essa analise com os dados atuais. Pode indicar o periodo e o que deseja comparar? Nenhum dado foi alterado.", "financial_analysis", map[string]any{"status": "analysis_not_verified"}
+		return true, "Nao consegui validar a recomendacao para esse pedido. Posso consultar os registros ou preparar uma referencia de orcamento para uma categoria, sem alterar seus dados.", "financial_analysis", map[string]any{"status": "analysis_not_verified"}
 	}
 	return true, strings.TrimSpace(intent.Reply), "financial_analysis", map[string]any{"status": "read_only", "as_of": intent.facts["as_of"], "years": intent.facts["years"]}
 }

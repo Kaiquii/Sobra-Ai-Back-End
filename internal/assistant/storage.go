@@ -184,19 +184,21 @@ func lastPendingCreateExpense(userID uint, conversationID uint) (map[string]any,
 func pendingCreateExpenseDB(db *gorm.DB, userID uint, conversationID uint) (map[string]any, bool, error) {
 	var messages []Message
 	err := db.
-		Where("conversation_id = ? AND user_id = ? AND role = ? AND tool_call = ?", conversationID, userID, "assistant", "create_expense").
+		Where("conversation_id = ? AND user_id = ? AND role = ?", conversationID, userID, "assistant").
 		Order("id desc").
 		Limit(1).
 		Find(&messages).Error
 	if err != nil {
 		return nil, false, err
 	}
-	if len(messages) == 0 || messages[0].ToolResult == "" {
+	if len(messages) == 0 {
 		return nil, false, nil
 	}
 
-	var result map[string]any
-	if err := json.Unmarshal([]byte(messages[0].ToolResult), &result); err != nil {
+	// An intervening assistant turn also ends the active draft context sent to
+	// the interpreter; old proposals remain history, not current instructions.
+	result, handled, err := expenseConfirmationContext(messages[0])
+	if err != nil || !handled {
 		return nil, false, err
 	}
 
@@ -204,16 +206,37 @@ func pendingCreateExpenseDB(db *gorm.DB, userID uint, conversationID uint) (map[
 	if status != "needs_confirmation" && status != "needs_information" {
 		return nil, false, nil
 	}
-	if version, _ := intArg(result, "draft_version"); version != expenseDraftVersion {
-		// Legacy amount meant per-installment value; ask for the total again.
-		result["amount"] = 0
-		result["status"] = "needs_information"
-	}
 	return result, true, nil
 }
 
-// Serialize confirmations and consume the proposal in the same transaction as
-// the expenses and reply. Concurrent/retried confirmations cannot create twice.
+// Local confirmation applies to the latest assistant turn, never to an older
+// draft behind a subsequent conversation or report. Completed turns remain
+// locally idempotent so replaying a confirmation cannot duplicate writes/calls.
+func expenseConfirmationContext(latest Message) (map[string]any, bool, error) {
+	if latest.Role != "assistant" || latest.ToolCall != "create_expense" || latest.ToolResult == "" {
+		return nil, false, nil
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(latest.ToolResult), &result); err != nil {
+		return nil, false, err
+	}
+	switch result["status"] {
+	case "created", "cancelled":
+		return result, true, nil
+	case "needs_confirmation", "needs_information":
+		if version, _ := intArg(result, "draft_version"); version != expenseDraftVersion {
+			result["amount"] = 0
+			result["status"] = "needs_information"
+		}
+		return result, true, nil
+	default:
+		return nil, false, nil
+	}
+}
+
+// Serialize confirmations and consume the current proposal in the same
+// transaction as expenses and reply. Concurrent/retried confirmations cannot
+// create twice, including when a second request waits for the first to commit.
 func confirmPendingExpense(userID, conversationID uint, message string) (map[string]any, bool, error) {
 	var result map[string]any
 	handled := false
@@ -222,11 +245,22 @@ func confirmPendingExpense(userID, conversationID uint, message string) (map[str
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND user_id = ?", conversationID, userID).First(&conversation).Error; err != nil {
 			return err
 		}
-		pending, ok, err := pendingCreateExpenseDB(tx, userID, conversationID)
-		if err != nil || !ok {
+		var latest []Message
+		if err := tx.Where("conversation_id = ? AND user_id = ? AND role = ?", conversationID, userID, "assistant").Order("id desc").Limit(1).Find(&latest).Error; err != nil {
 			return err
 		}
-		handled = true
+		if len(latest) == 0 {
+			return nil
+		}
+		var err error
+		result, handled, err = expenseConfirmationContext(latest[0])
+		if err != nil || !handled {
+			return err
+		}
+		if result["status"] == "created" || result["status"] == "cancelled" {
+			return nil
+		}
+		pending := result
 		pending["confirm"] = pending["status"] == "needs_confirmation"
 		result, err = createExpenseFromToolDB(tx, userID, pending)
 		if err != nil {

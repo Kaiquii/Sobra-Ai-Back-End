@@ -4,6 +4,7 @@ import (
 	"Sobra_Ai_Back-end/internal/categories"
 	"Sobra_Ai_Back-end/internal/database"
 	"Sobra_Ai_Back-end/internal/expenses"
+	"Sobra_Ai_Back-end/internal/incomes"
 	"bytes"
 	"context"
 	"database/sql"
@@ -33,6 +34,7 @@ type financialReadQuery struct {
 	GroupBy       string                `json:"group_by"`
 	Operation     string                `json:"operation"`
 	Limit         int                   `json:"limit"`
+	Position      int                   `json:"position,omitempty"`
 }
 
 type financialReadRow struct {
@@ -102,7 +104,7 @@ func parseFinancialReadQuery(raw any) (financialReadQuery, error) {
 		return query, fmt.Errorf("invalid grouping")
 	}
 	switch query.Operation {
-	case "list", "compare", "max", "min", "sum", "average":
+	case "list", "compare", "max", "min", "sum", "average", "review", "budget":
 	default:
 		return query, fmt.Errorf("invalid operation")
 	}
@@ -114,6 +116,19 @@ func parseFinancialReadQuery(raw any) (financialReadQuery, error) {
 	}
 	if query.Limit < 1 || query.Limit > 24 || len(query.Periods) < 1 || len(query.Periods) > 24 {
 		return query, fmt.Errorf("invalid query bounds")
+	}
+	if _, present := fields["position"]; present {
+		if query.Position < 1 || query.Position > 24 || (query.Operation != "max" && query.Operation != "min") {
+			return query, fmt.Errorf("invalid ranking position")
+		}
+		// Position denotes one ordinal, never pagination or a top-N count.
+		query.Limit = 1
+	}
+	if query.Operation == "review" && query.GroupBy != "category" {
+		return query, fmt.Errorf("review requires categories")
+	}
+	if query.Operation == "budget" && (query.GroupBy != "month" || query.CategoryName == "") {
+		return query, fmt.Errorf("budget requires a category and months")
 	}
 	years := map[int]map[int]bool{}
 	for _, period := range query.Periods {
@@ -157,7 +172,7 @@ func executeFinancialQuery(ctx context.Context, userID uint, raw any) (bool, str
 func executeFinancialQueryDB(ctx context.Context, db *gorm.DB, userID uint, raw any, now time.Time) (bool, string, string, any) {
 	query, err := parseFinancialReadQuery(raw)
 	if err != nil {
-		return financialQueryNeedsClarification(nil, "invalid_query", "Preciso de um periodo e do que deseja comparar: meses, categorias, despesas, parcelas ou compras parceladas. Nenhum dado foi alterado.")
+		return financialQueryNeedsClarification(nil, "invalid_query", "Nao consegui interpretar a consulta com confiabilidade. Pode dizer se quer os valores de cada mes, a soma ou um ranking? Nenhum dado foi alterado.")
 	}
 	if query.GroupBy == "clarify_installment_or_purchase" {
 		return financialQueryNeedsClarification(&query, "installment_or_purchase", "Voce quer comparar o valor de cada parcela cadastrada ou o total das parcelas registradas de cada compra?")
@@ -168,19 +183,26 @@ func executeFinancialQueryDB(ctx context.Context, db *gorm.DB, userID uint, raw 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var rows []financialReadRow
+	var guidanceReply string
+	var guidanceResult map[string]any
+	guidance := query.Operation == "review" || query.Operation == "budget"
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var categoryID uint
 		if query.CategoryName != "" {
-			var matches []categories.Category
-			if err := tx.Where("user_id = ? AND LOWER(name) = LOWER(?)", userID, query.CategoryName).Order("id").Limit(3).Find(&matches).Error; err != nil {
+			var owned []categories.Category
+			if err := tx.Where("user_id = ?", userID).Order("id").Limit(1001).Find(&owned).Error; err != nil {
 				return err
 			}
-			if len(matches) != 1 || !strings.EqualFold(matches[0].Name, query.CategoryName) {
-				return queryClarification("category_not_found", "Nao encontrei uma categoria sua com esse nome exato. Qual categoria cadastrada deseja consultar?")
+			if len(owned) > 1000 {
+				return queryClarification("scope_too_large", "Ha categorias demais para resolver esse filtro com confiabilidade. Nao apresentei resultados parciais.")
 			}
-			categoryID, query.CategoryName = matches[0].ID, matches[0].Name
+			categoryID, query.CategoryName, err = resolveFinancialCategoryName(userID, query.CategoryName, owned)
+			if err != nil {
+				return err
+			}
 		}
 		var entries []expenses.Expense
+		var incomeRows []incomes.Income
 		for _, period := range query.Periods {
 			var annual []expenses.Expense
 			if err := expenses.ApplyEffectiveYear(tx.Preload("PaymentSplits").Where("user_id = ?", userID), period.Year).Order("id").Limit(financialQueryExpenseLimit + 1).Find(&annual).Error; err != nil {
@@ -190,6 +212,16 @@ func executeFinancialQueryDB(ctx context.Context, db *gorm.DB, userID uint, raw 
 				return queryClarification("scope_too_large", "Esse ano tem mais lancamentos do que consigo comparar de uma vez. A consulta nao foi apresentada com valores parciais.")
 			}
 			entries = append(entries, annual...)
+			if guidance {
+				var annualIncome []incomes.Income
+				if err := tx.Where("user_id = ? AND year = ?", userID, period.Year).Limit(5001).Find(&annualIncome).Error; err != nil {
+					return err
+				}
+				if len(annualIncome) > 5000 {
+					return queryClarification("scope_too_large", "Esse periodo tem mais rendas do que consigo analisar de uma vez. Nao apresentei totais parciais.")
+				}
+				incomeRows = append(incomeRows, annualIncome...)
+			}
 		}
 		series, err := financialQueryPurchaseSeries(query, userID, categoryID, entries)
 		if err != nil {
@@ -224,6 +256,13 @@ func executeFinancialQueryDB(ctx context.Context, db *gorm.DB, userID uint, raw 
 				names[category.ID] = category.Name
 			}
 		}
+		if categoryID != 0 {
+			names[categoryID] = query.CategoryName
+		}
+		if guidance {
+			guidanceReply, guidanceResult, err = renderFinancialGuidance(query, userID, entries, incomeRows, names, now)
+			return err
+		}
 		rows, err = aggregateFinancialReadQuery(query, userID, categoryID, entries, purchaseEntries, names)
 		return err
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
@@ -233,6 +272,9 @@ func executeFinancialQueryDB(ctx context.Context, db *gorm.DB, userID uint, raw 
 			return financialQueryNeedsClarification(&query, clarification.reason, clarification.reply)
 		}
 		return financialQueryUnavailable()
+	}
+	if guidance {
+		return true, guidanceReply, "financial_analysis", guidanceResult
 	}
 	shown, total, matched := finalizeFinancialReadRows(query, rows)
 	limited := (query.Operation != "sum" && query.Operation != "average") && len(shown) < matched
@@ -244,7 +286,10 @@ func executeFinancialQueryDB(ctx context.Context, db *gorm.DB, userID uint, raw 
 	if query.GroupBy == "purchase" {
 		result["purchase_basis"] = "all_registered_installments_of_purchases_with_matching_period_entries"
 	}
-	return true, financialQueryReply(query, shown, total, matched, limited), "financial_analysis", result
+	if query.GroupBy == "month" && query.Operation == "sum" && len(rows) > 1 {
+		result["monthly_breakdown"] = rows
+	}
+	return true, financialQueryReply(query, shown, total, matched, limited, rows), "financial_analysis", result
 }
 
 func financialQueryNeedsClarification(query *financialReadQuery, reason, reply string) (bool, string, string, any) {
@@ -477,6 +522,12 @@ func finalizeFinancialReadRows(query financialReadQuery, rows []financialReadRow
 		}
 		matched = len(shown)
 		sort.Slice(shown, func(i, j int) bool { return financialReadRowLess(shown[i], shown[j], query.Operation == "min") })
+		if query.Position > 0 {
+			if query.Position > len(shown) {
+				return []financialReadRow{}, total, matched
+			}
+			shown = shown[query.Position-1 : query.Position]
+		}
 	}
 	if !(query.GroupBy == "month" && query.Operation == "compare") && len(shown) > query.Limit {
 		shown = shown[:query.Limit]
@@ -506,7 +557,7 @@ func financialQueryLabel(label string) string {
 	return strings.NewReplacer("\\", "\\\\", "*", "\\*", "_", "\\_", "`", "\\`", "[", "\\[", "]", "\\]", "(", "\\(", ")", "\\)", "#", "\\#", ">", "\\>", "!", "\\!", "|", "\\|", "~", "\\~", "<", "\\<").Replace(label)
 }
 
-func financialQueryReply(query financialReadQuery, rows []financialReadRow, total float64, matched int, limited bool) string {
+func financialQueryReply(query financialReadQuery, rows []financialReadRow, total float64, matched int, limited bool, breakdown ...[]financialReadRow) string {
 	var scope []string
 	for _, period := range query.Periods {
 		if len(period.Months) == 12 {
@@ -532,10 +583,18 @@ func financialQueryReply(query financialReadQuery, rows []financialReadRow, tota
 	}
 	var lines []string
 	lines = append(lines, header+".")
-	if len(rows) == 0 {
+	if len(rows) == 0 && query.Position > 0 && matched > 0 {
+		lines = append(lines, fmt.Sprintf("Encontrei %d grupos com registros; nao ha um valor na posicao %d do ranking solicitado.", matched, query.Position))
+	} else if len(rows) == 0 {
 		lines = append(lines, "Nao encontrei lancamentos cadastrados para essa consulta; isso nao garante ausencia de gastos reais.")
 	} else {
-		if query.Operation == "max" {
+		if query.Position > 0 {
+			order := "maior"
+			if query.Operation == "min" {
+				order = "menor"
+			}
+			lines = append(lines, fmt.Sprintf("%dº %s valor cadastrado:", query.Position, order))
+		} else if query.Operation == "max" {
 			lines = append(lines, "Maiores valores cadastrados:")
 		} else if query.Operation == "min" {
 			lines = append(lines, "Menores valores cadastrados entre os grupos com lancamentos:")
@@ -556,6 +615,19 @@ func financialQueryReply(query financialReadQuery, rows []financialReadRow, tota
 				line += " (sem lancamentos cadastrados; nao significa ausencia de gastos reais)"
 			}
 			lines = append(lines, line+".")
+		}
+		if query.GroupBy == "month" && query.Operation == "sum" && len(breakdown) > 0 && len(breakdown[0]) > 1 {
+			lines = append(lines, "Valores por mes no mesmo escopo:")
+			for _, month := range breakdown[0][:min(6, len(breakdown[0]))] {
+				line := "- **" + financialQueryMonth(month.Month, month.Year) + ":** R$ " + formatMoney(month.Amount)
+				if !month.Registered {
+					line += " (sem lancamentos cadastrados)"
+				}
+				lines = append(lines, line+".")
+			}
+			if len(breakdown[0]) > 6 {
+				lines = append(lines, fmt.Sprintf("Detalhes dos primeiros 6 de %d meses; a soma inclui todos os meses pedidos.", len(breakdown[0])))
+			}
 		}
 		if query.Operation != "sum" && query.Operation != "average" {
 			lines = append(lines, "Total cadastrado no escopo: **R$ "+formatMoney(total)+"**.")

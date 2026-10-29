@@ -142,12 +142,19 @@ func interpretFinancialIntent(client textGenerator, userID uint, message string,
 
 func interpretFinancialIntentWithHistory(client textGenerator, userID uint, message string, history []Message, drafts ...map[string]any) (financialIntent, error) {
 	now := assistantNow()
-	facts, err := analysisContextForClient(client, userID, message, history)
+	// Interpretation needs scope and references, not the user's entire annual
+	// ledger. Authenticated financial reads happen after the single completion.
+	categoryNames, err := categoryNamesForInterpreter(userID)
 	if err != nil {
-		return financialIntent{}, fmt.Errorf("assistant financial context unavailable")
+		return financialIntent{}, fmt.Errorf("assistant category context unavailable")
 	}
-	prompt := financialInterpreterPrompt(now, categoryNamesForPrompt(userID), facts, drafts...)
+	categoryText := strings.Join(categoryNames, ", ")
+	if categoryText == "" {
+		categoryText = "nenhuma"
+	}
+	prompt := financialInterpreterPrompt(now, categoryText, nil, drafts...)
 	text, err := client.generateText(GeminiRequest{
+		CategoryNames:     categoryNames,
 		SystemInstruction: &GeminiContent{Parts: []GeminiPart{{Text: prompt}}},
 		Contents:          buildConversationFromMessages(compactFinancialHistory(history), message),
 		GenerationConfig:  map[string]any{"temperature": 0},
@@ -181,29 +188,49 @@ func interpretFinancialIntentWithHistory(client textGenerator, userID uint, mess
 			intent.Installments = 1
 		}
 	}
-	intent.facts = facts
+	// Legacy analytical output is verified after generation, without another call.
+	if intent.Intent == "financial_analysis" || intent.Intent == "general" || intent.Intent == "app_help" {
+		if financialMoneyPattern.MatchString(financialValidationText(intent.Reply)) || intent.Intent == "financial_analysis" {
+			facts, err := analysisContextForClient(client, userID, message, history)
+			if err != nil {
+				return financialIntent{}, fmt.Errorf("assistant financial context unavailable")
+			}
+			intent.facts = facts
+		}
+	}
 
 	return normalizeInterpretedIntent(intent), nil
 }
 
 func categoryNamesForPrompt(userID uint) string {
-	var categoriesList []categories.Category
-	if err := database.DB.Where("user_id = ?", userID).Order("name asc").Find(&categoriesList).Error; err != nil {
-		return "nenhuma"
-	}
-
-	names := make([]string, 0, len(categoriesList))
-	for _, category := range categoriesList {
-		name := strings.TrimSpace(category.Name)
-		if name != "" {
-			names = append(names, name)
-		}
-	}
-
-	if len(names) == 0 {
+	names, err := categoryNamesForInterpreter(userID)
+	if err != nil || len(names) == 0 {
 		return "nenhuma"
 	}
 	return strings.Join(names, ", ")
+}
+
+func categoryNamesForInterpreter(userID uint) ([]string, error) {
+	names := []string{}
+	if database.DB == nil {
+		return names, nil
+	}
+	var categoriesList []categories.Category
+	if err := database.DB.Where("user_id = ?", userID).Order("name asc").Limit(1001).Find(&categoriesList).Error; err != nil {
+		return nil, err
+	}
+	if len(categoriesList) > 1000 {
+		return nil, fmt.Errorf("assistant category context too large")
+	}
+	seen := map[string]bool{}
+	for _, category := range categoriesList {
+		name := strings.TrimSpace(category.Name)
+		if name != "" && !seen[name] {
+			names = append(names, name)
+			seen[name] = true
+		}
+	}
+	return names, nil
 }
 
 func normalizeInterpretedIntent(intent financialIntent) financialIntent {

@@ -112,7 +112,7 @@ func TestAnalysisYearWindowAndPromptCoversVideoFailures(t *testing.T) {
 		t.Fatal(got)
 	}
 	prompt := financialInterpreterPrompt(now, "Mercado", nil)
-	for _, required := range []string{"financial_analysis", "Janeiro pertence ao proximo ano", "category_suggested=true", "provided_fields", "nao cria metas/limites", "VA/VR", "pergunta atual prevalece"} {
+	for _, required := range []string{"financial_query", "operation=review", "operation=budget", "position=2", "Janeiro pertence ao proximo ano", "category_suggested=true", "provided_fields", "nao cria metas/limites", "VA/VR", "pergunta atual prevalece"} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("missing contract: %s", required)
 		}
@@ -171,6 +171,18 @@ func TestAnalysisCalendarUsesTheProvidedBrasiliaDateAtYearBoundary(t *testing.T)
 	history := []Message{{Role: "user", Content: "Dados de 2025"}}
 	if got := analysisYears("compare ano passado com este ano", history, now); !reflect.DeepEqual(got, []int{2025, 2026}) {
 		t.Fatalf("UTC rollover overrode the Brasilia date: %v", got)
+	}
+}
+
+func TestAnalysisCalendarFollowupKeepsTheNewestRelativeUserYear(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.FixedZone("Brasilia", -10800))
+	history := []Message{{Role: "user", Content: "Em 2024"}, {Role: "user", Content: "Agora veja o ano passado"}, {Role: "assistant", Content: "Consulta anterior"}}
+	if got := analysisYears("e novembro?", history, now); !reflect.DeepEqual(got, []int{2025}) {
+		t.Fatalf("relative calendar reference was lost on followup: %v", got)
+	}
+	history[1].Content = "Compare este ano com o próximo ano"
+	if got := analysisYears("e dezembro?", history, now); !reflect.DeepEqual(got, []int{2026, 2027}) {
+		t.Fatalf("relative comparison was replaced with an older numeric year: %v", got)
 	}
 }
 

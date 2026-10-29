@@ -386,6 +386,48 @@ func TestIntegrationAssistantFinancialSemantics(t *testing.T) {
 		transport.assertCalls(t, 1)
 	})
 
+	t.Run("sum_resolves_owned_category_alias_and_preserves_monthly_breakdown", func(t *testing.T) {
+		t.Setenv("OPENROUTER_API_KEY", "semantics-uber-alias-sum-synthetic-only")
+		message := "Some meus gastos de Uber em outubro e novembro de 2034."
+		answer, _ := chat(t, nil, message, `{"intent":"financial_query","query":{"periods":[{"year":2034,"months":[10,11]}],"category_name":"Uber","group_by":"month","operation":"sum","limit":2},"reply":"R$710","amount":710,"description":"INAPPLICABLE_SUM"}`)
+		result := readResult(t, answer)
+		query := semanticsObject(t, result["query"])
+		rows := semanticsRows(t, result)
+		if query["category_name"] != "Uber/99" || query["operation"] != "sum" || result["total_amount"] != 310.50 || len(rows) != 1 || rows[0]["amount"] != 310.50 {
+			t.Fatalf("sum trusted model money or resolved the wrong category owner: %+v", result)
+		}
+		breakdown, ok := result["monthly_breakdown"].([]any)
+		if !ok || len(breakdown) != 2 {
+			t.Fatalf("sum omitted the requested monthly breakdown: %+v", result)
+		}
+		for index, expected := range []struct {
+			month  float64
+			amount float64
+		}{{10, 80.50}, {11, 230}} {
+			month := semanticsObject(t, breakdown[index])
+			if month["year"] != float64(2034) || month["month"] != expected.month || month["amount"] != expected.amount {
+				t.Fatalf("alias sum mixed another month or tenant: %+v", month)
+			}
+		}
+		reply := strings.ToLower(answer["reply"].(string))
+		for _, required := range []string{"outubro", "novembro", "80,50", "230,00", "310,50"} {
+			if !strings.Contains(reply, required) {
+				t.Fatalf("sum reply lost monthly evidence %q: %s", required, reply)
+			}
+		}
+		if strings.Contains(reply, "710") || strings.Contains(reply, "inapplicable_sum") || strings.Contains(reply, "mercado") {
+			t.Fatalf("model-only values or unrelated categories entered the sum reply: %s", reply)
+		}
+		conversationID := answer["conversation_id"]
+		var conversation assistant.Conversation
+		if err := db.Where("id = ?", conversationID).First(&conversation).Error; err != nil || conversation.UserID != owner.ID {
+			t.Fatalf("alias sum used another user's conversation: owner=%d err=%v", conversation.UserID, err)
+		}
+		assertHistory(t, conversationID, message, answer["reply"].(string))
+		request(t, http.MethodGet, fmt.Sprintf("/api/assistant/conversations/%.0f/messages", conversationID), otherToken, nil, http.StatusNotFound)
+		transport.assertCalls(t, 1)
+	})
+
 	t.Run("correction_preserves_original_user_scope_without_replaying_wrong_report", func(t *testing.T) {
 		t.Setenv("OPENROUTER_API_KEY", "semantics-correction-synthetic-only")
 		original := "Em qual mes do ano inteiro de 2034 gastei mais com Uber/99?"
@@ -453,33 +495,88 @@ func TestIntegrationAssistantFinancialSemantics(t *testing.T) {
 		})
 	}
 
-	t.Run("annual_advice_uses_verified_summary_when_model_math_is_unverified", func(t *testing.T) {
+	t.Run("annual_review_uses_authenticated_category_guidance_once", func(t *testing.T) {
+		t.Setenv("OPENROUTER_API_KEY", "semantics-verified-review-synthetic-only")
+		answer, prompt := chat(t, nil, "Onde posso revisar meus gastos de 2034 para me organizar melhor?", `{"intent":"financial_query","query":{"periods":[{"year":2034,"months":[]}],"group_by":"category","operation":"review"}}`)
+		result := readResult(t, answer)
+		query := semanticsObject(t, result["query"])
+		if result["reply_source"] != "verified_guidance" || query["operation"] != "review" || query["group_by"] != "category" || result["total_expense"] != 1730.50 || result["total_income"] != float64(2000) || result["has_future_records"] != true {
+			t.Fatalf("annual review did not use the complete authenticated scope: %+v", result)
+		}
+		categories := result["categories"].([]any)
+		want := map[string]float64{"Mercado": 1000, "Compras parceladas": 420, "Uber/99": 310.50}
+		if len(categories) != len(want) {
+			t.Fatalf("annual review lost or leaked a category: %+v", categories)
+		}
+		for _, raw := range categories {
+			category := semanticsObject(t, raw)
+			name, _ := category["category_name"].(string)
+			amount, exists := want[name]
+			if !exists || category["amount"] != amount {
+				t.Fatalf("annual category totals include another period or tenant: %+v", category)
+			}
+			delete(want, name)
+		}
+		if len(want) != 0 || !strings.Contains(answer["reply"].(string), "2034") || strings.Contains(prompt, "1730.5") || strings.Contains(prompt, "80.5") {
+			t.Fatal("review omitted its year or sent financial facts to the interpreter")
+		}
+	})
+
+	t.Run("category_budget_keeps_future_records_out_of_historical_reference", func(t *testing.T) {
+		t.Setenv("OPENROUTER_API_KEY", "semantics-verified-budget-synthetic-only")
+		answer, prompt := chat(t, nil, "Me ajude com um orcamento mensal de Uber/99 em 2034.", `{"intent":"financial_query","query":{"periods":[{"year":2034,"months":[]}],"category_name":"Uber/99","group_by":"month","operation":"budget"}}`)
+		result := readResult(t, answer)
+		query := semanticsObject(t, result["query"])
+		if result["reply_source"] != "verified_guidance" || query["category_name"] != "Uber/99" || query["operation"] != "budget" || result["total_expense"] != 310.50 || result["historical_reference_available"] != false || result["historical_months"] != float64(0) || result["historical_average_amount"] != nil || result["safe_spending_limit"] != nil || result["has_future_records"] != true {
+			t.Fatalf("future category records became a historical budget or spending authorization: %+v", result)
+		}
+		months := result["months"].([]any)
+		if len(months) != 12 {
+			t.Fatalf("category budget lost requested months: %+v", months)
+		}
+		for _, raw := range months {
+			month := semanticsObject(t, raw)
+			want := float64(0)
+			if month["month"] == float64(10) {
+				want = 80.50
+			} else if month["month"] == float64(11) {
+				want = 230
+			}
+			if month["year"] != float64(2034) || month["amount"] != want || month["registered"] != (want > 0) || month["timing"] != "future_month" {
+				t.Fatalf("category budget mixed another category or treated missing records as history: %+v", month)
+			}
+		}
+		lower := strings.ToLower(answer["reply"].(string))
+		if !strings.Contains(lower, "uber/99") || !strings.Contains(lower, "objetivo") || !strings.Contains(lower, "futur") || strings.Contains(lower, "mercado") || strings.Contains(lower, "compras parceladas") || strings.Contains(prompt, "80.5") {
+			t.Fatalf("category budgeting became an unrelated annual report: %+v", answer)
+		}
+	})
+
+	t.Run("second_largest_installment_keeps_ordinal_position_and_scope", func(t *testing.T) {
+		t.Setenv("OPENROUTER_API_KEY", "semantics-second-installment-synthetic-only")
+		answer, _ := chat(t, nil, "Qual foi a segunda maior parcela de outubro de 2034?", `{"intent":"financial_query","query":{"periods":[{"year":2034,"months":[10]}],"category_name":"Compras parceladas","group_by":"installment","operation":"max","position":2}}`)
+		result := readResult(t, answer)
+		query := semanticsObject(t, result["query"])
+		rows := semanticsRows(t, result)
+		if query["position"] != float64(2) || query["group_by"] != "installment" || result["total_amount"] != float64(70) || len(rows) != 1 || rows[0]["amount"] != float64(30) || rows[0]["label"] != "Compra B" || rows[0]["month"] != float64(10) || rows[0]["year"] != float64(2034) {
+			t.Fatalf("second installment was replaced with first place, a purchase or another period: %+v", result)
+		}
+	})
+
+	t.Run("unverified_advice_does_not_replace_requested_scope_with_annual_summary", func(t *testing.T) {
 		t.Setenv("OPENROUTER_API_KEY", "semantics-annual-advice-synthetic-only")
-		message := "Analise meus gastos cadastrados de 2034 e me ajude a organizar o ano."
+		message := "Como posso organizar meu orcamento de Uber/99 em outubro e novembro de 2034?"
 		answer, _ := chat(t, nil, message, `{"intent":"financial_analysis","reply":"Mercado e desperdicio: corte 97,43% dos gastos de 2034."}`)
 		result := semanticsObject(t, answer["tool_result"])
-		if answer["tool_call"] != "financial_analysis" || result["status"] != "read_only" || result["reply_source"] != "verified_summary" || result["analysis_status"] != "analysis_not_verified" || answer["error_code"] != nil {
-			t.Fatalf("unverified annual advice did not use the authenticated summary: %+v", answer)
+		if answer["tool_call"] != "financial_analysis" || result["status"] != "analysis_not_verified" || result["reply_source"] != nil || answer["error_code"] != nil {
+			t.Fatalf("unverified scoped advice was replaced with an unrelated summary: %+v", answer)
 		}
 		reply := answer["reply"].(string)
 		lower := strings.ToLower(reply)
-		for _, unsupported := range []string{"97,43", "97.43", "mercado e desperdicio", "mercado é desperdício", "corte 97", "9999", "9.999"} {
+		for _, unsupported := range []string{"97,43", "97.43", "mercado", "compras parceladas", "corte 97", "9999", "9.999", "r$", "1.730,50", "1730,50", "2.000,00"} {
 			if strings.Contains(lower, unsupported) {
-				t.Fatalf("verified summary retained unsupported advice or another tenant's amount: %s", reply)
+				t.Fatalf("unverified advice leaked amounts or changed the requested category: %s", reply)
 			}
-		}
-		// All amounts belong to 2034. The separate Uber entry in 2025 and the
-		// other user's expenses must not enter this annual summary.
-		annualExpense := 80.50 + 230 + 1000 + 3*40 + 10*30
-		normalizedMoney := strings.NewReplacer(".", "", "*", "", " ", "", "\u00a0", "", "\n", "").Replace(reply)
-		for _, amount := range []float64{annualExpense, 2000} {
-			want := "R$" + strings.ReplaceAll(fmt.Sprintf("%.2f", amount), ".", ",")
-			if !strings.Contains(normalizedMoney, want) {
-				t.Fatalf("verified annual summary omitted a real fixture total %s: %s", want, reply)
-			}
-		}
-		if !strings.Contains(reply, "2034") || strings.Contains(reply, "2025") || !strings.Contains(lower, "cadastrad") || !strings.Contains(lower, "futur") {
-			t.Fatalf("annual summary lost its year or treated future registrations as paid expenses: %s", reply)
 		}
 		assertHistory(t, answer["conversation_id"], message, reply)
 	})
@@ -514,7 +611,7 @@ func TestIntegrationAssistantFinancialSemantics(t *testing.T) {
 		})
 	}
 
-	t.Run("confirmation_without_draft_and_rejected_model_use_no_completions", func(t *testing.T) {
+	t.Run("affirmation_without_proposal_continues_conversation_once", func(t *testing.T) {
 		t.Setenv("OPENROUTER_API_KEY", "semantics-confirmation-synthetic-only")
 		conversation := assistant.Conversation{UserID: owner.ID, Title: "Sem rascunho"}
 		if err := db.Create(&conversation).Error; err != nil {
@@ -524,17 +621,57 @@ func TestIntegrationAssistantFinancialSemantics(t *testing.T) {
 		transport.requests = nil
 		transport.mu.Unlock()
 		id := float64(conversation.ID)
-		for range 2 {
-			answer := request(t, http.MethodPost, "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": id, "message": "sim"}, http.StatusOK)
-			if answer["conversation_id"] != id || answer["error_code"] != nil || answer["tool_call"] != nil {
-				t.Fatalf("confirmation without a draft created an action: %+v", answer)
-			}
-		}
 		rejected := request(t, http.MethodPost, "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": id, "message": "Quero ajuda", "model_id": "mock/settings-fee:free"}, http.StatusBadRequest)
 		if rejected["error_code"] != "invalid_model" {
 			t.Fatalf("paid model was not rejected before inference: %+v", rejected)
 		}
 		transport.assertCalls(t, 0)
-		assertHistory(t, id)
+		first, _ := chat(t, id, "sim", `{"intent":"general","reply":"Posso ajudar a organizar a consulta. Qual informacao deseja?"}`)
+		second, _ := chat(t, id, "ok", `{"intent":"app_help","reply":"Podemos comecar pelos relatorios do aplicativo."}`)
+		if first["tool_call"] != "general" || second["tool_call"] != "app_help" || first["error_code"] != nil || second["error_code"] != nil {
+			t.Fatalf("affirmation without proposal was treated as an expense confirmation: first=%+v second=%+v", first, second)
+		}
+		assertHistory(t, id, "sim", first["reply"].(string), "ok", second["reply"].(string))
+	})
+
+	t.Run("affirmation_after_help_cannot_confirm_an_older_expense_proposal", func(t *testing.T) {
+		t.Setenv("OPENROUTER_API_KEY", "semantics-stale-confirmation-synthetic-only")
+		conversation := assistant.Conversation{UserID: owner.ID, Title: "Proposta antiga e ajuda"}
+		if err := db.Create(&conversation).Error; err != nil {
+			t.Fatal(err)
+		}
+		original := "Prepare uma compra unica de sessenta reais de Uber/99, salario, dois de outubro de 2034."
+		proposal := "Confira a compra de Uber/99. Posso confirmar?"
+		for _, message := range []assistant.Message{
+			{ConversationID: conversation.ID, UserID: owner.ID, Role: "user", Content: original},
+			{ConversationID: conversation.ID, UserID: owner.ID, Role: "assistant", Content: proposal, ToolCall: "create_expense", ToolResult: `{"status":"needs_confirmation","draft_version":2,"description":"Proposta antiga","category_name":"Uber/99","amount":60,"payment_source":"Salario","month":10,"year":2034,"day":2,"type":"Unica","installments":1}`},
+		} {
+			if err := db.Create(&message).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+		id := float64(conversation.ID)
+		helpMessage := "Antes disso, pode me ajudar a entender o relatorio?"
+		help, helpPrompt := chat(t, id, helpMessage, `{"intent":"app_help","reply":"Posso explicar como comparar os meses no relatorio. Quer continuar?"}`)
+		continued, prompt := chat(t, id, "sim", `{"intent":"app_help","reply":"Abra Relatorios e selecione os meses que deseja comparar."}`)
+		if help["tool_call"] != "app_help" || continued["tool_call"] != "app_help" || !strings.Contains(prompt, helpMessage) || !strings.Contains(prompt, help["reply"].(string)) {
+			t.Fatalf("affirmation confirmed an older draft instead of the latest conversational turn: %+v", continued)
+		}
+		readDraft := func(text string) map[string]any {
+			t.Helper()
+			_, raw, found := strings.Cut(text, "RASCUNHO (JSON):")
+			var draft map[string]any
+			if !found || json.NewDecoder(strings.NewReader(raw)).Decode(&draft) != nil {
+				t.Fatal("missing or malformed interpreter draft context")
+			}
+			return draft
+		}
+		if active := readDraft(helpPrompt); active["description"] != "Proposta antiga" || active["amount"] != float64(60) {
+			t.Fatalf("current proposal was lost before the help turn: %+v", active)
+		}
+		if stale := readDraft(prompt); len(stale) != 0 {
+			t.Fatalf("old proposal still contaminated active draft context after conversation resumed: %+v", stale)
+		}
+		assertHistory(t, id, original, proposal, helpMessage, help["reply"].(string), "sim", continued["reply"].(string))
 	})
 }

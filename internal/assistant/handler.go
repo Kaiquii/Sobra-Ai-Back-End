@@ -66,8 +66,8 @@ func chat(c *gin.Context) {
 			c.JSON(http.StatusOK, ChatResponse{ConversationID: conversation.ID, Reply: localToolReply("create_expense", toolResult), ToolCall: "create_expense", ToolResult: toolResult})
 			return
 		}
-		c.JSON(http.StatusOK, ChatResponse{ConversationID: conversation.ID, Reply: "Nao ha cadastro pendente para confirmar. Informe os dados da despesa."})
-		return
+		// A short affirmation may answer a conversational question. Only an
+		// immediately preceding expense proposal is confirmed locally.
 	}
 	// Omitted/blank model_id always delegates routing to the backend. Old saved
 	// preferences remain available to legacy endpoints but never pin the new app.
