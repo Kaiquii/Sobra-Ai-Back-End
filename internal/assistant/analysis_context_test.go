@@ -112,7 +112,7 @@ func TestAnalysisYearWindowAndPromptCoversVideoFailures(t *testing.T) {
 		t.Fatal(got)
 	}
 	prompt := financialInterpreterPrompt(now, "Mercado", nil)
-	for _, required := range []string{"financial_query", "operation=review", "operation=budget", "position=2", "Janeiro pertence ao proximo ano", "category_suggested=true", "provided_fields", "nao cria metas/limites", "VA/VR", "pergunta atual prevalece"} {
+	for _, required := range []string{"financial_query", "operation=review", "operation=budget", "position=2", "planejamento que cruza dezembro", "category_suggested=true", "provided_fields", "nao cria metas/limites", "VA/VR", "pergunta atual prevalece"} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("missing contract: %s", required)
 		}

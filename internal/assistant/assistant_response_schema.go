@@ -20,9 +20,9 @@ func assistantResponseSchema(categorySets ...[]string) map[string]any {
 	position := assistantNullableSchema(assistantSchemaEnum("integer", assistantSchemaIntegers(1, 24)...))
 	position["description"] = "Ordinal em max/min: 2o=2; null fora disso. Nao e quantidade."
 	category := assistantCategoryNameSchema(categorySets...)
-	category["description"] = "Categoria solicitada; '' se nao pedida. Nao inferir."
+	category["description"] = "Filtro pedido ou mantido na continuidade; '' em consulta global."
 	source := assistantSchemaEnum("string", "", "Salario", "Adiantamento", "Renda Extra", "VA", "VR")
-	source["description"] = "Fonte solicitada; '' se nao pedida."
+	source["description"] = "Filtro pedido ou mantido na continuidade; '' em consulta global."
 	query := assistantSchemaObject(map[string]any{
 		"periods":        map[string]any{"type": "array", "items": period, "description": "Todos os periodos solicitados, em ate dois anos."},
 		"category_name":  category,
@@ -116,8 +116,9 @@ func assistantNullableSchema(schema map[string]any) map[string]any {
 	return schema
 }
 
-// This adapter is used exclusively after requesting the native schema. It must
-// never turn required query nulls into a wider scope or erase an expense mask.
+// Native responses and legacy read queries share optional-control normalization.
+// Required query nulls must never widen scope or erase an expense mask. Legacy
+// expense responses bypass this adapter to preserve their existing field masks.
 func normalizeAssistantSchemaResponse(text string) (string, error) {
 	var object map[string]json.RawMessage
 	if json.Unmarshal([]byte(text), &object) != nil || object == nil {

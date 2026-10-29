@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"sort"
 	"strings"
@@ -172,6 +173,7 @@ func executeFinancialQuery(ctx context.Context, userID uint, raw any) (bool, str
 func executeFinancialQueryDB(ctx context.Context, db *gorm.DB, userID uint, raw any, now time.Time) (bool, string, string, any) {
 	query, err := parseFinancialReadQuery(raw)
 	if err != nil {
+		log.Printf("Assistant financial_query rejected reason=%s", financialQueryRejectionReason(err))
 		return financialQueryNeedsClarification(nil, "invalid_query", "Nao consegui interpretar a consulta com confiabilidade. Pode dizer se quer os valores de cada mes, a soma ou um ranking? Nenhum dado foi alterado.")
 	}
 	if query.GroupBy == "clarify_installment_or_purchase" {

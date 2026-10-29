@@ -5,6 +5,41 @@ video. Evidencias e rollback em [publicacao das intencoes](publicacao-intencoes-
 A publicacao anterior permanece em [registro anterior](publicacao-consultas-ia.md).
 Nao altera schema nem contratos HTTP do aplicativo.
 
+## Ajustes locais posteriores ao terceiro video
+
+Revisao local de 29/10/2026 apos o video das 14h13; estes ajustes ainda nao foram
+publicados. O video mostra consultas de orcamento recusadas, uma orientacao geral
+que manteve indevidamente a categoria da consulta anterior, uma correcao respondida
+so com promessa de analisar e, depois, um aviso de limite do provedor.
+
+Foi reproduzida uma divergencia entre formatos: a mesma consulta com controles
+opcionais nulos passava no schema nativo e falhava em JSON object/texto. A leitura
+`financial_query` agora compartilha a normalizacao de limit/position nos tres
+formatos, sem remover null de filtros/periodos nem alterar mascaras de cadastro.
+O plano real das duas recusas do video nao esta disponivel; essa reproducao nao
+comprova que elas tiveram exatamente essa causa.
+
+Prompt e descricoes do schema distinguem continuidade de consulta global: a
+primeira pode herdar filtros; a segunda limpa categoria/fonte. Outros meses nao
+implicam ranking. Uma consulta ou correcao com escopo claro deve gerar o plano
+na mesma resposta, em vez de somente prometer uma analise. A referencia a janeiro
+do ano seguinte vale para planejamento que atravessa dezembro.
+
+Consultas rejeitadas registram apenas motivo de uma lista fechada, sem plano,
+mensagens, erros brutos ou valores financeiros. O contrato publico de
+`needs_clarification`/`invalid_query` permanece igual. Isso permite diagnosticar
+uma proxima recusa sem gastar outra completion para explicar a primeira.
+
+Nenhuma nova completion foi usada nesta revisao. A consulta GET de status confirmou
+o esgotamento da franquia diaria da conta; os contadores ficam em artefato local,
+fora do Git. Os testes HTTP simulados cobrem a correcao do protocolo, inclusive
+orcamento, isolamento e mascaras; nao demonstram interpretacao pelo modelo real.
+O harness completo `scripts/test.ps1 -Integration` passou com formatacao, vet,
+build, testes de regressao e PostgreSQL descartavel. Cobertura geral 47,4%;
+assistente 62,9%; integracao 43,0%.
+Permanecem uma completion por mensagem, teto 2048 e o mesmo limite de entrada
+fixa de 5.669 bytes. A validacao real do prompt revisado continua pendente.
+
 ## Interpretacao e dados
 
 A unica completion interpreta o pedido; filtros, calculos e orientacoes pessoais
@@ -32,7 +67,9 @@ sao apagados para transformar resposta invalida em autorizacao ou escopo maior.
 Cadastro acompanhado de query e consultas explicitas iniciadas por qual/quanto/
 quais interpretadas como cadastro sao recusados antes de aceitar a resposta do
 provedor. O motivo e fixo nos logs, sem expor a mensagem. Modelos sem schema
-continuam com JSON object/texto e validacao local. Schema
+continuam com JSON object/texto e validacao local. Nos ajustes locais acima,
+`financial_query` desses formatos usa a mesma normalizacao de controles opcionais.
+Schema
 correto nao comprova equivalencia perfeita com linguagem natural.
 
 ## Plano financeiro

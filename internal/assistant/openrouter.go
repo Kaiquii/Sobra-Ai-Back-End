@@ -359,6 +359,16 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 			}
 			return invalidRouterResponse(req.DebugStage, routerIntentUnsupported)
 		}
+		if intent.Intent == "financial_query" && payload.ResponseFormat["type"] != "json_schema" {
+			// Optional query controls have the same meaning with every response
+			// format. Reuse the native adapter only for this read-only action;
+			// legacy expense masks and conflicting creation plans remain intact.
+			normalized, err := normalizeAssistantSchemaResponse(cleanJSONText(text))
+			if err != nil {
+				return invalidRouterResponse(req.DebugStage, routerIntentJSONInvalid)
+			}
+			text = normalized
+		}
 		// A read plan cannot also be an expense mutation. Reject the conflict
 		// before publishing any model output or marking this model successful.
 		if intent.Intent == "create_expense" && intent.provided["query"] != nil {
