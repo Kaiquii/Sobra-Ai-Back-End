@@ -19,6 +19,11 @@ saida na interpretacao quando suportado. Consultas financeiras sao formatadas
 localmente e a rotacao apos falha vale apenas para a mensagem seguinte.
 Validacao e rollback: [publicacao-economia-ia.md](publicacao-economia-ia.md).
 
+**Analises e continuidade de rascunhos:** `financial_analysis` permite comparar
+meses, consultar rankings e elaborar conselhos usando um resumo autenticado
+antes da unica inferencia. O servidor verifica os valores e os calculos retornados.
+Detalhes, cobertura e publicacao: [publicacao-analises-ia.md](publicacao-analises-ia.md).
+
 ## Regra principal
 
 O assistente nao deve depender de padroes fixos de texto para entender perguntas do usuario.
@@ -52,9 +57,10 @@ O fluxo correto e:
    - conversa comum
    - consulta de patrimonio, FGTS ou investimentos
 4. O Go executa a acao com seguranca usando o usuario autenticado pelo JWT.
-5. Em consultas financeiras, o Go formata o resultado autenticado sem uma segunda
-   inferencia para redigir a resposta. Conversa comum e ajuda usam o `reply` da
-   propria interpretacao. Cadastros e confirmacoes usam textos exatos do Go.
+5. Consultas simples continuam formatadas em Go. Analises usam o `reply` da mesma
+   inferencia, com fatos atuais e verificacao numerica no servidor. Conversa comum
+   e ajuda tambem usam essa unica inferencia. Cadastros e confirmacoes usam textos
+   exatos do Go.
 
 Confirmar um cadastro preparado nao usa chamada ao modelo. Interpretar cadastro,
 conversa comum, ajuda e consulta financeira usam no maximo uma chamada.

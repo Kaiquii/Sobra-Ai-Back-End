@@ -97,6 +97,7 @@ func financialNumbersSupported(reply string, resultJSON []byte) bool {
 	}
 	allowed := map[string]bool{}
 	monetary := map[string]bool{}
+	labels := []string{}
 	var collect func(string, any)
 	collect = func(key string, value any) {
 		if key == "id" || strings.HasSuffix(key, "_id") {
@@ -107,11 +108,14 @@ func financialNumbersSupported(reply string, resultJSON []byte) bool {
 			if number, err := typed.Float64(); err == nil {
 				canonical := strconv.FormatFloat(number, 'f', 2, 64)
 				allowed[canonical] = true
-				if key == "amount" || key == "monthly_total" || strings.HasPrefix(key, "total_") || strings.HasSuffix(key, "_amount") {
+				if key == "amount" || key == "monthly_total" || key == "monthly_amounts_jan_to_dec" || strings.HasPrefix(key, "total_") || strings.HasSuffix(key, "_amount") {
 					monetary[canonical] = true
 				}
 			}
 		case string:
+			if (key == "name" || key == "category" || key == "category_name" || key == "description") && strings.TrimSpace(typed) != "" {
+				labels = append(labels, financialValidationText(typed))
+			}
 			if key == "date" || key == "created_at" || key == "updated_at" {
 				for _, token := range financialNumberPattern.FindAllString(typed, -1) {
 					allowed[canonicalFinancialNumber(token)] = true
@@ -136,6 +140,12 @@ func financialNumbersSupported(reply string, resultJSON []byte) bool {
 		if !monetary[canonicalFinancialNumber(token)] {
 			return false
 		}
+	}
+	// Registered labels such as Uber/99 are not financial figures. Remove only
+	// complete, exact labels after checking money, rather than authorizing 99 as
+	// an arbitrary percentage or amount anywhere in the generated response.
+	for _, label := range labels {
+		validationReply = strings.ReplaceAll(validationReply, label, "")
 	}
 	for _, token := range financialNumberPattern.FindAllString(validationReply, -1) {
 		if !allowed[canonicalFinancialNumber(token)] {

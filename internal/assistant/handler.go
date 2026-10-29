@@ -469,6 +469,9 @@ func localToolReply(toolName string, toolResult any) string {
 			return "Cadastrei: " + details + "."
 		}
 
+		if suggested, _ := result["category_suggested"].(bool); suggested {
+			return "Sugeri a categoria " + category + " entre as suas categorias cadastradas. Confira o cadastro: " + details + ". Posso confirmar?"
+		}
 		return "Confira o cadastro: " + details + ". Posso confirmar?"
 	}
 

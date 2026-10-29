@@ -132,6 +132,33 @@ func buildConversationFromMessages(messages []Message, currentMessage string) []
 	return contents
 }
 
+// The fresh snapshot replaces old report figures, but keeps period/category
+// references needed by follow-ups. User text and conversational analysis stay.
+func compactFinancialHistory(messages []Message) []Message {
+	result := append([]Message(nil), messages...)
+	for i := range result {
+		message := &result[i]
+		if message.Role != "assistant" || !strings.HasPrefix(message.ToolCall, "get_") {
+			continue
+		}
+		var data map[string]any
+		if json.Unmarshal([]byte(message.ToolResult), &data) != nil {
+			continue
+		}
+		context := map[string]any{"query": message.ToolCall}
+		for _, key := range []string{"month", "year", "category_name", "payment_source"} {
+			if value, ok := data[key]; ok {
+				context[key] = value
+			}
+		}
+		encoded, err := json.Marshal(context)
+		if err == nil {
+			message.Content = "Consulta anterior (use os fatos atuais para valores): " + string(encoded)
+		}
+	}
+	return result
+}
+
 func lastPendingCreateExpense(userID uint, conversationID uint) (map[string]any, bool) {
 	result, ok, _ := pendingCreateExpenseDB(database.DB, userID, conversationID)
 	return result, ok

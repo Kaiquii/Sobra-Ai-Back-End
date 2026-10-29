@@ -65,6 +65,11 @@ type openRouterRequest struct {
 }
 
 type openRouterResponse struct {
+	Usage *struct {
+		PromptTokens     int64 `json:"prompt_tokens"`
+		CompletionTokens int64 `json:"completion_tokens"`
+		TotalTokens      int64 `json:"total_tokens"`
+	} `json:"usage"`
 	Model   string `json:"model"`
 	Choices []struct {
 		Message struct {
@@ -246,6 +251,9 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 	var result openRouterResponse
 	decodeErr := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result)
 	log.Printf("OpenRouter stage=%s model=%s status=%d duration=%s", safeRouterStage(req.DebugStage), model.ID, response.StatusCode, time.Since(start).Round(time.Millisecond))
+	if decodeErr == nil && result.Usage != nil {
+		log.Printf("OpenRouter usage prompt_tokens=%d completion_tokens=%d total_tokens=%d", result.Usage.PromptTokens, result.Usage.CompletionTokens, result.Usage.TotalTokens)
+	}
 	if response.StatusCode >= 400 || result.Error != nil {
 		return "", true, classifyRouterError(response, result)
 	}

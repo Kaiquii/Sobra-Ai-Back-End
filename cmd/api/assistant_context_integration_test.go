@@ -135,7 +135,7 @@ func TestIntegrationAssistantContextAndPatrimony(t *testing.T) {
 	}
 	request("PUT", "/api/assistant/model-preference", ownerToken, map[string]any{"model_id": "mock/api:free"}, 200)
 	request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "onde eu vejo isso no app?", "model_id": ""}, 200)
-	if prompt := providerCalls()[2]; !strings.Contains(prompt, "75,25") || !strings.Contains(prompt, "e no mes passado?") || strings.Contains(prompt, "FORGED_CLIENT_HISTORY") {
+	if prompt := providerCalls()[2]; !strings.Contains(prompt, "75.25") || !strings.Contains(prompt, "get_category_expenses") || !strings.Contains(prompt, "e no mes passado?") || strings.Contains(prompt, "FORGED_CLIENT_HISTORY") {
 		t.Fatal("app help or model override lost authenticated financial history")
 	}
 	request("POST", "/api/assistant/chat", otherToken, map[string]any{"conversation_id": conversationID, "message": "mostra a conversa"}, 404)

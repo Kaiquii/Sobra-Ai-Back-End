@@ -180,6 +180,7 @@ func TestIntegrationAPI(t *testing.T) {
 	t.Setenv("JWT_SECRET", "harness-only-signing-key")
 	t.Setenv("UPLOADS_DIR", t.TempDir())
 	t.Setenv("OPENROUTER_API_KEY", "harness-only")
+	t.Setenv("OPENROUTER_USER_RPM", "60")
 	previousTransport := http.DefaultTransport
 	llmTransport := &integrationLLMTransport{base: previousTransport, responses: []string{
 		`{"intent":"create_expense","description":"Compra IA","amount":600,"type":"Parcelada","installments":3}`,
@@ -488,6 +489,7 @@ func TestIntegrationAPI(t *testing.T) {
 	testBenefitsLifecycle(t, db, request, owner, other, catID)
 	testPatrimonyLifecycle(t, db, request, owner, other)
 	testInvestmentCategories(t, db, request, owner, other)
+	testAssistantAnalysisAndDraftContinuity(t, db, request, llmTransport, owner, other, ownerUser.ID, uint(catID))
 	// Remove the generated series via public endpoints before the existing
 	// category deletion checks. No production database is used by this test.
 	all := request("GET", "/api/expenses/", owner, "", 200)
@@ -501,4 +503,64 @@ func TestIntegrationAPI(t *testing.T) {
 	request("GET", "/api/incomes/", owner, "", 403)
 	request("GET", "/api/patrimony/", owner, "", 403)
 	request("GET", "/api/patrimony/investment-categories", owner, "", 403)
+}
+
+func testAssistantAnalysisAndDraftContinuity(t *testing.T, db *gorm.DB, request func(string, string, string, string, int) map[string]any, provider *integrationLLMTransport, owner, other string, userID, categoryID uint) {
+	t.Helper()
+	for _, row := range []expenses.Expense{
+		{UserID: userID, CategoryID: categoryID, Description: "Uber outubro", Amount: 131.34, Month: 10, Year: 2034, Date: time.Date(2034, 10, 1, 12, 0, 0, 0, time.UTC), Type: "Única", PaymentSource: "Salario"},
+		{UserID: userID, CategoryID: categoryID, Description: "Uber novembro", Amount: 113.36, Month: 11, Year: 2034, Date: time.Date(2034, 11, 1, 12, 0, 0, 0, time.UTC), Type: "Única", PaymentSource: "Salario"},
+	} {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	provider.mu.Lock()
+	beforeCalls := len(provider.prompts)
+	provider.responses = append(provider.responses,
+		`{"intent":"financial_analysis","reply":"Em outubro R$ 131,34 e novembro R$ 113,36. Juntos, R$ 244,70.","calculations":[{"operation":"sum","paths":["/periods/0/categories/0/monthly_amounts_jan_to_dec/9","/periods/0/categories/0/monthly_amounts_jan_to_dec/10"]}]}`,
+		`{"intent":"create_expense","description":"Chocolate regressao","amount":10,"provided_fields":["description","amount"]}`,
+		`{"intent":"create_expense","description":"","amount":0,"category_name":"Updated","category_suggested":true,"payment_source":"Salario","day":28,"month":10,"year":2034,"type":"Unica","provided_fields":["category_name","payment_source","day","month","year","type"]}`,
+		`{"intent":"create_expense","description":"","amount":0,"category_name":"Updated","payment_source":"","day":0,"month":0,"year":0,"type":"","provided_fields":["category_name"]}`)
+	provider.mu.Unlock()
+	analysis := request("POST", "/api/assistant/chat", owner, `{"message":"Compare outubro e novembro de 2034, e some os valores"}`, 200)
+	if analysis["tool_call"] != "financial_analysis" || !strings.Contains(analysis["reply"].(string), "244,70") || analysis["tool_result"].(map[string]any)["status"] != "read_only" {
+		t.Fatalf("analysis failed: %v", analysis)
+	}
+	provider.mu.Lock()
+	analysisPrompt := provider.prompts[beforeCalls]
+	provider.mu.Unlock()
+	if strings.Contains(analysisPrompt, "Categoria privada") || !strings.Contains(analysisPrompt, "months_with_records") || !strings.Contains(analysisPrompt, "131.34") || !strings.Contains(analysisPrompt, "113.36") {
+		t.Fatal("snapshot missing current facts or leaked another tenant")
+	}
+	first := request("POST", "/api/assistant/chat", owner, `{"message":"Mudando de assunto, gastei 10 reais com chocolate"}`, 200)
+	id := uint(first["conversation_id"].(float64))
+	second := request("POST", "/api/assistant/chat", owner, fmt.Sprintf(`{"conversation_id":%d,"message":"Salario, 28/10/2034, unica; escolha a melhor categoria existente"}`, id), 200)
+	if second["tool_result"].(map[string]any)["status"] != "needs_confirmation" || !strings.Contains(second["reply"].(string), "Sugeri a categoria") {
+		t.Fatalf("suggested category lost fields: %v", second)
+	}
+	third := request("POST", "/api/assistant/chat", owner, fmt.Sprintf(`{"conversation_id":%d,"message":"categoria Updated"}`, id), 200)
+	if third["tool_result"].(map[string]any)["status"] != "needs_confirmation" {
+		t.Fatalf("empty defaults erased draft: %v", third)
+	}
+	var count int64
+	db.Model(&expenses.Expense{}).Where("description = ?", "Chocolate regressao").Count(&count)
+	if count != 0 {
+		t.Fatal("proposal wrote without confirmation")
+	}
+	request("POST", "/api/assistant/chat", other, fmt.Sprintf(`{"conversation_id":%d,"message":"sim"}`, id), 404)
+	confirmed := request("POST", "/api/assistant/chat", owner, fmt.Sprintf(`{"conversation_id":%d,"message":"sim"}`, id), 200)
+	if confirmed["tool_result"].(map[string]any)["status"] != "created" {
+		t.Fatalf("confirmation failed: %v", confirmed)
+	}
+	request("POST", "/api/assistant/chat", owner, fmt.Sprintf(`{"conversation_id":%d,"message":"sim"}`, id), 200)
+	db.Model(&expenses.Expense{}).Where("description = ?", "Chocolate regressao").Count(&count)
+	if count != 1 {
+		t.Fatal("replayed confirmation duplicated purchase")
+	}
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if len(provider.prompts)-beforeCalls != 4 || len(provider.responses) != 0 {
+		t.Fatal("more than one completion per interpreted message or confirmation spent inference")
+	}
 }

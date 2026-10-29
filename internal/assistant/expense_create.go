@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -29,22 +30,62 @@ func expenseArgsFromIntent(intent financialIntent, drafts ...map[string]any) map
 	for key, value := range fields {
 		if intent.provided != nil {
 			if explicit, ok := intent.provided[key]; ok {
+				// Models sometimes serialize a full schema with empty defaults even
+				// when asked to return a patch. Absence cannot erase a known field.
+				if emptyDraftPatchValue(explicit) && !explicitDraftField(intent.provided, key) {
+					continue
+				}
 				args[key] = explicit
 			}
 		} else {
 			args[key] = value
 		}
 	}
+	if suggested, _ := intent.provided["category_suggested"].(bool); suggested {
+		args["category_suggested"] = true
+	} else if strings.TrimSpace(intent.CategoryName) != "" {
+		delete(args, "category_suggested")
+	}
 	delete(args, "date")
 	args["confirm"] = false
 	return args
+}
+
+func emptyDraftPatchValue(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(typed) == ""
+	case float64:
+		return typed == 0
+	case int:
+		return typed == 0
+	}
+	return false
+}
+
+func explicitDraftField(raw map[string]any, key string) bool {
+	fields, _ := raw["provided_fields"].([]any)
+	for _, field := range fields {
+		if name, ok := field.(string); ok && name == key {
+			return true
+		}
+	}
+	return false
 }
 
 func expenseDraftContext(drafts ...map[string]any) string {
 	if len(drafts) == 0 {
 		return "null"
 	}
-	encoded, err := json.Marshal(drafts[0])
+	compact := map[string]any{}
+	for _, key := range []string{"description", "category_name", "payment_source", "amount", "month", "year", "day", "type", "installments", "status", "missing_fields", "category_suggested"} {
+		if value, exists := drafts[0][key]; exists {
+			compact[key] = value
+		}
+	}
+	encoded, err := json.Marshal(compact)
 	if err != nil {
 		return "null"
 	}
