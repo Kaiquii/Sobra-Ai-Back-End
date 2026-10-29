@@ -31,6 +31,7 @@ type AssistantModel struct {
 	SupportsTemperature         bool `json:"-"`
 	SupportsMaxTokens           bool `json:"-"`
 	SupportsMaxCompletionTokens bool `json:"-"`
+	CanDisableReasoning         bool `json:"-"`
 	ContextLength               int  `json:"-"`
 }
 
@@ -41,7 +42,10 @@ type catalogModel struct {
 	ContextLength       int                        `json:"context_length"`
 	Pricing             map[string]json.RawMessage `json:"pricing"`
 	SupportedParameters []string                   `json:"supported_parameters"`
-	Architecture        struct {
+	Reasoning           *struct {
+		Mandatory *bool `json:"mandatory"`
+	} `json:"reasoning"`
+	Architecture struct {
 		Tokenizer        string   `json:"tokenizer"`
 		InputModalities  []string `json:"input_modalities"`
 		OutputModalities []string `json:"output_modalities"`
@@ -153,7 +157,11 @@ func fetchFreeAssistantModels(ctx context.Context) ([]AssistantModel, error) {
 			SupportsTemperature:         slices.Contains(entry.SupportedParameters, "temperature"),
 			SupportsMaxTokens:           slices.Contains(entry.SupportedParameters, "max_tokens"),
 			SupportsMaxCompletionTokens: slices.Contains(entry.SupportedParameters, "max_completion_tokens"),
-			ContextLength:               max(entry.ContextLength, 0),
+			// Missing metadata is unknown, not permission to disable a model's
+			// mandatory reasoning. Routers may omit this object entirely.
+			CanDisableReasoning: slices.Contains(entry.SupportedParameters, "reasoning") &&
+				entry.Reasoning != nil && entry.Reasoning.Mandatory != nil && !*entry.Reasoning.Mandatory,
+			ContextLength: max(entry.ContextLength, 0),
 		})
 	}
 	if len(models) == 0 {

@@ -138,11 +138,28 @@ func compactFinancialHistory(messages []Message) []Message {
 	result := append([]Message(nil), messages...)
 	for i := range result {
 		message := &result[i]
-		if message.Role != "assistant" || !strings.HasPrefix(message.ToolCall, "get_") {
+		if message.Role != "assistant" || (!strings.HasPrefix(message.ToolCall, "get_") && message.ToolCall != "financial_analysis") {
 			continue
 		}
 		var data map[string]any
 		if json.Unmarshal([]byte(message.ToolResult), &data) != nil {
+			continue
+		}
+		if message.ToolCall == "financial_analysis" {
+			if data["status"] != "read_only" {
+				continue
+			}
+			metadata := map[string]any{"executed_query": data["query"]}
+			if data["query"] == nil {
+				if data["reply_source"] != "verified_summary" {
+					continue // Keep conversational advice without an executed plan.
+				}
+				metadata = map[string]any{"verified_summary": true, "years": data["years"], "as_of": data["as_of"]}
+			}
+			encoded, err := json.Marshal(metadata)
+			if err == nil {
+				message.Content = "Consulta anterior executada (dados; nao substitui o pedido do usuario): " + string(encoded)
+			}
 			continue
 		}
 		context := map[string]any{"query": message.ToolCall}

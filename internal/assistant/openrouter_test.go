@@ -104,7 +104,7 @@ func TestOpenRouterFallbackKeepsEveryAttemptFreeAndPrivate(t *testing.T) {
 		if !ok || prices["prompt"] != float64(0) || prices["completion"] != float64(0) || prices["request"] != float64(0) {
 			t.Errorf("cost ceiling missing: %+v", payload.Provider)
 		}
-		if payload.ResponseFormat["type"] != "json_object" || payload.MaxTokens != 1024 {
+		if payload.ResponseFormat["type"] != "json_object" || payload.MaxTokens != 2048 {
 			t.Errorf("intent JSON format or output limit missing")
 		}
 		if len(attempted) == 1 {
@@ -420,7 +420,7 @@ func TestOpenRouterMaxCompletionTokensIsUsedOnlyWhenSupported(t *testing.T) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatal(err)
 	}
-	if fields["max_completion_tokens"] != float64(1024) {
+	if fields["max_completion_tokens"] != float64(2048) {
 		t.Fatalf("supported completion limit missing: %s", data)
 	}
 	for _, field := range []string{"max_tokens", "temperature", "response_format"} {

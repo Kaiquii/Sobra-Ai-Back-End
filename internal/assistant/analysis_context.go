@@ -19,6 +19,7 @@ import (
 )
 
 var analysisYearPattern = regexp.MustCompile(`\b(20\d{2})\b`)
+var analysisRelativeYearPattern = regexp.MustCompile(`\b(?:ano passado|ano anterior|ano que vem|proximo ano|ultimos 12 meses|neste ano|este ano|deste ano|ano atual|ano corrente)\b`)
 
 func assistantNow() time.Time {
 	location, err := time.LoadLocation("America/Sao_Paulo")
@@ -31,39 +32,49 @@ func assistantNow() time.Time {
 // Resolve a bounded year window without another model call. The newest explicit
 // reference wins; an unrelated older conversation must not pin the current year.
 func analysisYears(message string, history []Message, now time.Time) []int {
-	text := message
-	// Calendar expressions only; financial intent still belongs to the model.
-	relative := strings.ToLower(message)
-	if !analysisYearPattern.MatchString(message) {
-		if strings.Contains(relative, "ano passado") || strings.Contains(relative, "ano anterior") {
-			return []int{now.Year() - 1}
-		}
-		if strings.Contains(relative, "ano que vem") || strings.Contains(relative, "proximo ano") || strings.Contains(relative, "próximo ano") {
-			return []int{now.Year() + 1}
-		}
-		if strings.Contains(relative, "ultimos 12 meses") || strings.Contains(relative, "últimos 12 meses") {
-			return []int{now.Year() - 1, now.Year()}
-		}
-	}
-	if len(analysisYearPattern.FindAllString(text, -1)) == 0 {
-		for i := len(history) - 1; i >= 0; i-- {
-			if history[i].Role == "user" && analysisYearPattern.MatchString(history[i].Content) {
-				text += " " + history[i].Content
-				break
-			}
-		}
-	}
 	years := []int{}
-	for _, value := range analysisYearPattern.FindAllString(text, -1) {
-		year, _ := strconv.Atoi(value)
+	appendYear := func(year int) {
 		if len(years) < 2 && !containsYear(years, year) {
 			years = append(years, year)
 		}
 	}
-	if len(years) == 0 {
-		years = append(years, now.Year())
+	appendExplicitYears := func(text string) {
+		for _, value := range analysisYearPattern.FindAllString(text, -1) {
+			year, _ := strconv.Atoi(value)
+			appendYear(year)
+		}
 	}
-	return years
+	appendExplicitYears(message)
+	if len(years) > 0 {
+		return years
+	}
+	// Resolve calendar references together, in their stated order. They override
+	// an older conversation year without classifying the financial request.
+	relative := strings.ToLower(strings.Join(strings.Fields(message), " "))
+	relative = strings.NewReplacer("ó", "o", "ú", "u").Replace(relative)
+	for _, reference := range analysisRelativeYearPattern.FindAllString(relative, -1) {
+		switch reference {
+		case "ano passado", "ano anterior":
+			appendYear(now.Year() - 1)
+		case "ano que vem", "proximo ano":
+			appendYear(now.Year() + 1)
+		case "ultimos 12 meses":
+			appendYear(now.Year() - 1)
+			appendYear(now.Year())
+		default:
+			appendYear(now.Year())
+		}
+	}
+	if len(years) > 0 {
+		return years
+	}
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "user" && analysisYearPattern.MatchString(history[i].Content) {
+			appendExplicitYears(history[i].Content)
+			return years
+		}
+	}
+	return []int{now.Year()}
 }
 
 func containsYear(years []int, year int) bool {
@@ -290,6 +301,14 @@ func analysisReply(intent financialIntent) (bool, string, string, any) {
 	validation := map[string]any{"facts": intent.facts, "verified_calculations": calculations}
 	data := []byte(analysisFactsJSON(validation))
 	if err != nil || intent.facts == nil || strings.TrimSpace(intent.Reply) == "" || !financialNumbersSupported(intent.Reply, data) {
+		if intent.Intent == "financial_analysis" {
+			if reply, ok := verifiedAnalysisSummary(intent.facts); ok {
+				return true, reply, "financial_analysis", map[string]any{
+					"status": "read_only", "as_of": intent.facts["as_of"], "years": intent.facts["years"],
+					"reply_source": "verified_summary", "analysis_status": "analysis_not_verified",
+				}
+			}
+		}
 		return true, "Nao consegui validar essa analise com os dados atuais. Pode indicar o periodo e o que deseja comparar? Nenhum dado foi alterado.", "financial_analysis", map[string]any{"status": "analysis_not_verified"}
 	}
 	return true, strings.TrimSpace(intent.Reply), "financial_analysis", map[string]any{"status": "read_only", "as_of": intent.facts["as_of"], "years": intent.facts["years"]}

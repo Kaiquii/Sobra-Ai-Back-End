@@ -19,6 +19,7 @@ import (
 
 const openRouterRequestBudget = 45 * time.Second
 const openRouterMaxAttempts = 3
+const assistantIntentMaxOutputTokens = 2048
 
 // OpenRouterError deliberately contains no upstream message, request, or token.
 // Providers can include submitted content in errors; never return or log it.
@@ -61,6 +62,7 @@ type openRouterRequest struct {
 	MaxTokens           int                 `json:"max_tokens,omitempty"`
 	MaxCompletionTokens int                 `json:"max_completion_tokens,omitempty"`
 	ResponseFormat      map[string]string   `json:"response_format,omitempty"`
+	Reasoning           map[string]bool     `json:"reasoning,omitempty"`
 	Provider            map[string]any      `json:"provider"`
 }
 
@@ -82,6 +84,55 @@ type openRouterResponse struct {
 		Message  string         `json:"message"`
 		Metadata map[string]any `json:"metadata"`
 	} `json:"error"`
+}
+
+// Diagnostics are a closed enum: provider text, returned model IDs and parser
+// errors can contain private data and must never become log fields.
+type routerInvalidResponseReason uint8
+
+const (
+	routerResponseDecodeFailed routerInvalidResponseReason = iota
+	routerResponseMissingChoices
+	routerResponseTruncated
+	routerResponseEmptyContent
+	routerResponseModelMismatch
+	routerIntentJSONInvalid
+	routerIntentUnsupported
+	routerIntentContentFiltered
+	routerIntentProviderError
+	routerIntentToolCalls
+)
+
+func (reason routerInvalidResponseReason) String() string {
+	switch reason {
+	case routerResponseDecodeFailed:
+		return "response_decode_failed"
+	case routerResponseMissingChoices:
+		return "missing_choices"
+	case routerResponseTruncated:
+		return "output_truncated"
+	case routerResponseEmptyContent:
+		return "empty_content"
+	case routerResponseModelMismatch:
+		return "model_mismatch"
+	case routerIntentJSONInvalid:
+		return "intent_json_invalid"
+	case routerIntentUnsupported:
+		return "intent_missing_or_unsupported"
+	case routerIntentContentFiltered:
+		return "intent_content_filtered"
+	case routerIntentProviderError:
+		return "intent_provider_error"
+	case routerIntentToolCalls:
+		return "intent_tool_calls"
+	default:
+		return "invalid_response"
+	}
+}
+
+func invalidRouterResponse(stage string, reason routerInvalidResponseReason) (string, bool, error) {
+	log.Printf("OpenRouter invalid_response stage=%s reason=%s", safeRouterStage(stage), reason.String())
+	return "", true, OpenRouterError{Code: "assistant_invalid_response", StatusCode: http.StatusBadGateway, RetryAfterSeconds: 15}
 }
 
 var openRouterCooldowns = struct {
@@ -257,19 +308,42 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 	if response.StatusCode >= 400 || result.Error != nil {
 		return "", true, classifyRouterError(response, result)
 	}
-	if decodeErr != nil || len(result.Choices) == 0 || result.Choices[0].FinishReason == "length" {
-		return "", true, OpenRouterError{Code: "assistant_invalid_response", StatusCode: http.StatusBadGateway, RetryAfterSeconds: 15}
+	if decodeErr != nil {
+		return invalidRouterResponse(req.DebugStage, routerResponseDecodeFailed)
+	}
+	if len(result.Choices) == 0 {
+		return invalidRouterResponse(req.DebugStage, routerResponseMissingChoices)
+	}
+	if result.Choices[0].FinishReason == "length" {
+		return invalidRouterResponse(req.DebugStage, routerResponseTruncated)
+	}
+	if req.DebugStage == "assistant_intent" {
+		switch result.Choices[0].FinishReason {
+		case "content_filter":
+			return invalidRouterResponse(req.DebugStage, routerIntentContentFiltered)
+		case "error":
+			return invalidRouterResponse(req.DebugStage, routerIntentProviderError)
+		case "tool_calls":
+			return invalidRouterResponse(req.DebugStage, routerIntentToolCalls)
+		}
 	}
 	text := strings.TrimSpace(result.Choices[0].Message.Content)
-	if text == "" || !client.responseModelAllowed(model.ID, result.Model) {
-		return "", true, OpenRouterError{Code: "assistant_invalid_response", StatusCode: http.StatusBadGateway, RetryAfterSeconds: 15}
+	if text == "" {
+		return invalidRouterResponse(req.DebugStage, routerResponseEmptyContent)
+	}
+	if !client.responseModelAllowed(model.ID, result.Model) {
+		return invalidRouterResponse(req.DebugStage, routerResponseModelMismatch)
 	}
 	if req.DebugStage == "assistant_intent" {
 		// JSON parsing happens before success so even models without native JSON
 		// formatting can fall back safely without executing an invalid intent.
 		intent, err := parseFinancialIntent(cleanJSONText(text))
 		if err != nil || strings.TrimSpace(intent.Intent) == "" {
-			return "", true, OpenRouterError{Code: "assistant_invalid_response", StatusCode: http.StatusBadGateway, RetryAfterSeconds: 15}
+			var object map[string]any
+			if json.Unmarshal([]byte(cleanJSONText(text)), &object) != nil || object == nil {
+				return invalidRouterResponse(req.DebugStage, routerIntentJSONInvalid)
+			}
+			return invalidRouterResponse(req.DebugStage, routerIntentUnsupported)
 		}
 	}
 	client.usedModel = model.ID
@@ -309,6 +383,11 @@ func routerPayload(model AssistantModel, req GeminiRequest) (openRouterRequest, 
 	if req.DebugStage == "assistant_intent" && model.SupportsResponseFormat {
 		payload.ResponseFormat = map[string]string{"type": "json_object"}
 	}
+	if req.DebugStage == "assistant_intent" && model.CanDisableReasoning {
+		// Interpretation has a shared output budget. Disable optional
+		// reasoning, rather than merely hiding it and consuming the same budget.
+		payload.Reasoning = map[string]bool{"enabled": false}
+	}
 	if req.DebugStage == "assistant_intent" && !model.SupportsResponseFormat {
 		const instruction = "Responda exclusivamente com um objeto JSON valido com a intencao e os campos pedidos, sem cercas de codigo nem texto fora do objeto. A string reply pode conter Markdown simples, com quebras de linha escapadas como \\n."
 		if len(payload.Messages) > 0 && payload.Messages[0].Role == "system" {
@@ -325,7 +404,7 @@ func routerPayload(model AssistantModel, req GeminiRequest) (openRouterRequest, 
 	}
 	outputLimit := 2048
 	if req.DebugStage == "assistant_intent" {
-		outputLimit = 1024
+		outputLimit = assistantIntentMaxOutputTokens
 	}
 	outputBudget := min(outputLimit, (model.ContextLength-256)/4)
 	inputBudget := model.ContextLength - outputBudget - 256

@@ -42,7 +42,15 @@ func handleFinancialMessageWithHistory(ctx context.Context, client textGenerator
 
 	log.Printf("Assistant intent interpreted")
 
+	if query, exists := intent.provided["query"]; exists {
+		switch intent.Intent {
+		case "financial_query", "financial_analysis", "monthly_summary", "category_expenses", "all_category_expenses":
+			return executeFinancialQuery(ctx, userID, query)
+		}
+	}
 	switch intent.Intent {
+	case "financial_query":
+		return executeFinancialQuery(ctx, userID, nil)
 	case "financial_analysis":
 		return analysisReply(intent)
 	case "cancel_expense":
@@ -50,7 +58,7 @@ func handleFinancialMessageWithHistory(ctx context.Context, client textGenerator
 		return true, localToolReply("create_expense", result), "create_expense", result
 	case "general", "app_help":
 		reply := strings.TrimSpace(intent.Reply)
-		if financialMoneyPattern.MatchString(reply) {
+		if financialMoneyPattern.MatchString(financialValidationText(reply)) {
 			// Classification cannot bypass the same provenance check used for
 			// personalized analysis by labelling financial prose as small talk.
 			return analysisReply(intent)
@@ -200,15 +208,9 @@ func categoryNamesForPrompt(userID uint) string {
 
 func normalizeInterpretedIntent(intent financialIntent) financialIntent {
 	intent.Intent = strings.TrimSpace(intent.Intent)
-	if strings.TrimSpace(intent.CategoryName) == "" {
-		return intent
-	}
-
-	switch intent.Intent {
-	case "monthly_summary", "all_category_expenses":
-		intent.Intent = "category_expenses"
-	}
-
+	intent.CategoryName = strings.TrimSpace(intent.CategoryName)
+	// A residual category must never silently narrow a monthly/all-category
+	// request. Query scope is explicit; fields do not override the chosen action.
 	return intent
 }
 
@@ -255,7 +257,7 @@ func parseFinancialIntent(text string) (financialIntent, error) {
 
 func validAssistantIntent(intent string) bool {
 	switch intent {
-	case "general", "app_help", "financial_analysis", "monthly_summary", "category_expenses", "list_categories", "all_category_expenses", "create_expense", "cancel_expense", "patrimony_summary", "fgts_balance", "list_investments":
+	case "general", "app_help", "financial_query", "financial_analysis", "monthly_summary", "category_expenses", "list_categories", "all_category_expenses", "create_expense", "cancel_expense", "patrimony_summary", "fgts_balance", "list_investments":
 		return true
 	default:
 		return false

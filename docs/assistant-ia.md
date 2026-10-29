@@ -14,7 +14,7 @@ Registros anteriores: [roteamento automatico](publicacao-roteamento-automatico-i
 [publicacao inicial](publicacao-openrouter.md).
 
 **Atualizacao publicada em 28/10/2026, as 20:29 de Sao Paulo:** uma mensagem de
-chat permite no maximo uma chamada ao OpenRouter, com teto de 1024 tokens de
+chat permite no maximo uma chamada ao OpenRouter, com teto de 2048 tokens de
 saida na interpretacao quando suportado. Consultas financeiras sao formatadas
 localmente e a rotacao apos falha vale apenas para a mensagem seguinte.
 Validacao e rollback: [publicacao-economia-ia.md](publicacao-economia-ia.md).
@@ -23,6 +23,12 @@ Validacao e rollback: [publicacao-economia-ia.md](publicacao-economia-ia.md).
 meses, consultar rankings e elaborar conselhos usando um resumo autenticado
 antes da unica inferencia. O servidor verifica os valores e os calculos retornados.
 Detalhes, cobertura e publicacao: [publicacao-analises-ia.md](publicacao-analises-ia.md).
+
+**Evolucao local de consultas em 29/10/2026, ainda nao publicada:** a mesma
+interpretacao pode fornecer um plano de leitura com periodos, filtros e ranking.
+O Go executa e formata a consulta, sem confiar em valores ou conclusoes de ranking
+escritos pelo modelo. Escopo, compatibilidade e economia:
+[assistant-consultas-estruturadas.md](assistant-consultas-estruturadas.md).
 
 ## Regra principal
 
@@ -261,7 +267,7 @@ Nenhuma rotacao apaga contadores, repete mensagens ou confirma cadastros por con
 
 A interpretacao solicita somente o JSON util, sem analise intermediaria, repeticao
 do historico ou `reply` redundante nas consultas/cadastros. Nos modelos que aceitam
-limite de saida, `assistant_intent` usa no maximo 1024 tokens, respeitando tambem
+limite de saida, `assistant_intent` usa no maximo 2048 tokens, respeitando tambem
 o contexto menor do modelo. Esse teto nao e uma promessa de economia percentual:
 entrada/historico tambem consomem tokens. Resposta truncada falha sem tentar outra
 inferencia na mesma mensagem. Conversa comum/ajuda ainda usam o reply dessa chamada.
@@ -299,7 +305,8 @@ precisa do binario anterior com o registro imutavel da migration 9, preservando
 tabela e preferencias, junto do ambiente anterior privado. Nunca apagar registros
 de migration nem restaurar backup sobre novas escritas para reverter so a API.
 
-O repositorio local contem rascunhos IA nao versionados que duplicam funcoes de
-`expense_create.go`. Esses arquivos e as alteracoes preexistentes no Compose sao
-preservados; o harness e os binarios desta entrega usam copia isolada dos mesmos
-fontes, excluindo somente esses rascunhos/Compose e configuracoes privadas.
+Os helpers puros de preparacao e parcelamento ficam em `expense_draft.go`,
+reutilizados pela criacao/confirmacao em `expense_create.go`, sem funcoes
+duplicadas. Ambos e seus testes fazem parte do harness e dos binarios. As
+alteracoes locais preexistentes do Compose e configuracoes privadas nao entram
+no commit nem no pacote de publicacao.

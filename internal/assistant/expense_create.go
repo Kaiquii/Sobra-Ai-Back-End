@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -27,24 +26,32 @@ func expenseArgsFromIntent(intent financialIntent, drafts ...map[string]any) map
 		}
 	}
 	fields := map[string]any{"description": intent.Description, "category_name": intent.CategoryName, "payment_source": intent.PaymentSource, "amount": intent.Amount, "month": intent.Month, "year": intent.Year, "day": intent.Day, "type": intent.Type, "installments": intent.Installments}
+	_, hasFieldMask := intent.provided["provided_fields"]
+	categoryChanged := false
 	for key, value := range fields {
 		if intent.provided != nil {
 			if explicit, ok := intent.provided[key]; ok {
+				if hasFieldMask && !explicitDraftField(intent.provided, key) {
+					continue
+				}
 				// Models sometimes serialize a full schema with empty defaults even
 				// when asked to return a patch. Absence cannot erase a known field.
 				if emptyDraftPatchValue(explicit) && !explicitDraftField(intent.provided, key) {
 					continue
 				}
 				args[key] = explicit
+				categoryChanged = categoryChanged || key == "category_name"
 			}
 		} else {
 			args[key] = value
 		}
 	}
-	if suggested, _ := intent.provided["category_suggested"].(bool); suggested {
-		args["category_suggested"] = true
-	} else if strings.TrimSpace(intent.CategoryName) != "" {
-		delete(args, "category_suggested")
+	if categoryChanged || intent.provided == nil {
+		if suggested, _ := intent.provided["category_suggested"].(bool); suggested {
+			args["category_suggested"] = true
+		} else if strings.TrimSpace(intent.CategoryName) != "" {
+			delete(args, "category_suggested")
+		}
 	}
 	delete(args, "date")
 	args["confirm"] = false
@@ -103,103 +110,34 @@ func createExpenseFromTool(userID uint, args map[string]any) (map[string]any, er
 }
 
 func createExpenseFromToolDB(db *gorm.DB, userID uint, args map[string]any) (map[string]any, error) {
-	result := map[string]any{"draft_version": expenseDraftVersion}
-	for key, value := range args {
-		if key != "confirm" && key != "status" && key != "draft_version" {
-			result[key] = value
-		}
+	result, amounts := prepareExpenseDraft(args)
+	if result["status"] == "needs_information" {
+		return result, nil
 	}
-	missing := []string{}
-	description, _ := stringArg(args, "description")
-	if description == "" || len([]rune(description)) > 255 {
-		missing = append(missing, "description")
+	if db == nil {
+		return nil, errors.New("banco indisponivel para validar a categoria")
 	}
-	result["description"] = description
-	name, _ := stringArg(args, "category_name")
+	name := result["category_name"].(string)
 	var category categories.Category
-	if name != "" {
-		err := db.Where("user_id = ? AND LOWER(name) = LOWER(?)", userID, name).First(&category).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
-		}
+	if err := db.Where("user_id = ? AND LOWER(name) = LOWER(?)", userID, name).First(&category).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
 	}
 	if category.ID == 0 {
-		missing = append(missing, "category_name")
-	} else {
-		name = category.Name
-	}
-	result["category_name"] = name
-	source, _ := stringArg(args, "payment_source")
-	source = normalizePaymentSource(source)
-	if normalizeMoneySource(source) == "" {
-		missing = append(missing, "payment_source")
-	}
-	result["payment_source"] = source
-	amount, _ := floatArg(args, "amount")
-	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) || amount > 1e10 || math.Abs(amount*100-math.Round(amount*100)) > 0.0001 {
-		missing = append(missing, "amount")
-	}
-	result["amount"] = amount
-	month, monthErr := intArg(args, "month")
-	year, yearErr := intArg(args, "year")
-	day, dayErr := intArg(args, "day")
-	date := time.Date(year, time.Month(month), day, 12, 0, 0, 0, time.Local)
-	if monthErr != nil || yearErr != nil || dayErr != nil || year < 2000 || year > 9999 || month < 1 || month > 12 || day < 1 || date.Day() != day || int(date.Month()) != month || date.Year() != year {
-		missing = append(missing, "date")
-	}
-	result["month"] = month
-	result["year"] = year
-	result["day"] = day
-	result["date"] = date.Format("2006-01-02")
-	kind, _ := stringArg(args, "type")
-	kind = normalizeExpenseTypeForCreate(kind)
-	if kind == "" {
-		missing = append(missing, "type")
-	}
-	result["type"] = kind
-	count := 1
-	installments := 1
-	if kind == "Parcelada" {
-		var err error
-		installments, err = intArg(args, "installments")
-		if err != nil || installments < 2 || installments > 120 {
-			missing = append(missing, "installments")
-		} else {
-			count = installments
-		}
-	} else if kind == "Fixa" {
-		count = 120
-		installments = 0
-	}
-	result["installments"] = installments
-	if len(missing) > 0 {
 		result["status"] = "needs_information"
-		result["missing_fields"] = missing
+		result["missing_fields"] = []string{"category_name"}
 		return result, nil
 	}
-	cents := int64(math.Round(amount * 100))
-	if kind == "Parcelada" && cents < int64(count) {
-		result["status"] = "needs_information"
-		result["missing_fields"] = []string{"amount"}
-		return result, nil
-	}
-	amounts := make([]float64, count)
-	for i := range amounts {
-		part := cents
-		if kind == "Parcelada" {
-			part = cents / int64(count)
-			if int64(i) < cents%int64(count) {
-				part++
-			}
-		}
-		amounts[i] = float64(part) / 100
-	}
-	result["installment_amounts"] = amounts
+	result["category_id"], result["category_name"] = category.ID, category.Name
 	confirm, _ := args["confirm"].(bool)
 	if !confirm {
 		result["status"] = "needs_confirmation"
 		return result, nil
 	}
+	description := result["description"].(string)
+	source := result["payment_source"].(string)
+	kind := result["type"].(string)
+	month, year, day := result["month"].(int), result["year"].(int), result["day"].(int)
+	installments, count := result["installments"].(int), len(amounts)
 	series := ""
 	if count > 1 {
 		series = fmt.Sprintf("assistant-%d-%d", userID, time.Now().UnixNano())

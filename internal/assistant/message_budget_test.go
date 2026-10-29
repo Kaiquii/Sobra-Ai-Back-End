@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -60,6 +61,13 @@ func TestChatMessageMakesAtMostOneCompletionIncludingFailures(t *testing.T) {
 					return
 				}
 				calls++
+				var payload openRouterRequest
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Error(err)
+				}
+				if payload.MaxTokens != 2048 {
+					t.Errorf("the larger output allowance must preserve one completion: max_tokens=%d", payload.MaxTokens)
+				}
 				if calls == 1 {
 					switch scenario {
 					case "invalid_json":

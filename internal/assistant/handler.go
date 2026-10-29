@@ -391,6 +391,12 @@ func assistantErrorResponse(err error) (string, string, int) {
 		if code == "assistant_quota_exceeded" {
 			return quotaReply(retryAfter), code, retryAfter
 		}
+		if code == "assistant_invalid_response" {
+			return "A IA nao concluiu uma resposta valida para essa pergunta. Tente novamente indicando o periodo e o que deseja comparar. Nenhum dado foi alterado.", code, retryAfter
+		}
+		if code == "assistant_model_context_exceeded" {
+			return "Essa pergunta precisa de um recorte menor para ser analisada. Indique os meses ou categorias que deseja comparar. Nenhum dado foi alterado.", code, retryAfter
+		}
 		return "A IA esta temporariamente indisponivel. Tente novamente em alguns instantes.", code, retryAfter
 	}
 

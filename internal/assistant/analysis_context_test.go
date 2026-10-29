@@ -124,6 +124,56 @@ func TestAnalysisYearWindowAndPromptCoversVideoFailures(t *testing.T) {
 	}
 }
 
+func TestAnalysisCalendarReferencesOverrideOldConversationYear(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.FixedZone("Brasilia", -3*60*60))
+	history := []Message{{Role: "user", Content: "Mostre outubro de 2025"}, {Role: "assistant", Content: "Em 2027..."}}
+	for _, test := range []struct {
+		name, message string
+		want          []int
+	}{
+		{"current year", "e neste ano?", []int{2026}},
+		{"current year with whitespace", "ESTE\t ANO", []int{2026}},
+		{"current year genitive", "os dados deste ano", []int{2026}},
+		{"current calendar year", "no ano atual", []int{2026}},
+		{"current calendar year synonym", "o ano corrente", []int{2026}},
+		{"past and current", "compare ano passado com este ano", []int{2025, 2026}},
+		{"current and past order", "compare este ano com o ano anterior", []int{2026, 2025}},
+		{"next and current", "compare o próximo ano com este ano", []int{2027, 2026}},
+		{"rolling year", "os últimos 12 meses", []int{2025, 2026}},
+		{"relative duplicates", "ano passado e ano anterior", []int{2025}},
+		{"relative window bounded", "ano passado, este ano e ano que vem", []int{2025, 2026}},
+		{"explicit beats relative", "compare 2024 com o ano passado e este ano", []int{2024}},
+		{"explicit window bounded", "2024, 2024, 2026 e 2027", []int{2024, 2026}},
+		{"explicit beats history", "novembro de 2026", []int{2026}},
+		{"followup retains user year", "e novembro?", []int{2025}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := analysisYears(test.message, history, now); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("calendar years=%v, want %v", got, test.want)
+			}
+		})
+	}
+	if got := analysisYears("e novembro?", []Message{{Role: "assistant", Content: "Em 2025"}}, now); !reflect.DeepEqual(got, []int{2026}) {
+		t.Fatalf("assistant text changed the default year: %v", got)
+	}
+	latest := append(history, Message{Role: "user", Content: "Agora setembro de 2024"})
+	if got := analysisYears("e novembro?", latest, now); !reflect.DeepEqual(got, []int{2024}) {
+		t.Fatalf("followup lost the newest user year: %v", got)
+	}
+}
+
+func TestAnalysisCalendarUsesTheProvidedBrasiliaDateAtYearBoundary(t *testing.T) {
+	location, err := time.LoadLocation("America/Sao_Paulo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2027, 1, 1, 1, 0, 0, 0, time.UTC).In(location)
+	history := []Message{{Role: "user", Content: "Dados de 2025"}}
+	if got := analysisYears("compare ano passado com este ano", history, now); !reflect.DeepEqual(got, []int{2025, 2026}) {
+		t.Fatalf("UTC rollover overrode the Brasilia date: %v", got)
+	}
+}
+
 func TestMonthlyMoneyArraysValidateButMetadataDoesNotBecomeMoney(t *testing.T) {
 	data, _ := json.Marshal(map[string]any{"monthly_amounts_jan_to_dec": []float64{131.34, 113.36}, "year": 2026})
 	if !financialNumbersSupported("Outubro R$ 131,34; novembro R$ 113,36.", data) || financialNumbersSupported("Saldo R$ 2.026,00.", data) {
