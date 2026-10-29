@@ -3,6 +3,7 @@
 Evolucao de 29/10/2026, sem nova migration. Corrige a limitacao
 dos campos singulares month/year para perguntas de varios periodos e separa a
 interpretacao do pedido dos calculos, filtros e ordenacao dos resultados.
+Publicacao e recuperacao: [registro da release](publicacao-consultas-ia.md).
 
 ## Contrato interno do modelo
 
