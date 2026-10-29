@@ -1,14 +1,15 @@
 # Consultas e orientacao com escopo preservado
 
-Evolucao publicada em 29/10/2026 as 14:02 de Sao Paulo apos os testes do segundo
-video. Evidencias e rollback em [publicacao das intencoes](publicacao-intencoes-ia.md).
-A publicacao anterior permanece em [registro anterior](publicacao-consultas-ia.md).
+Revisao atual publicada em 29/10/2026 as 14:44 de Sao Paulo apos o terceiro video.
+Evidencias e rollback em [publicacao de compatibilidade](publicacao-compatibilidade-ia.md).
+Historico: [intencoes, as 14:02](publicacao-intencoes-ia.md) e
+[consultas, as 11:30](publicacao-consultas-ia.md).
 Nao altera schema nem contratos HTTP do aplicativo.
 
-## Ajustes locais posteriores ao terceiro video
+## Ajustes posteriores ao terceiro video
 
-Revisao local de 29/10/2026 apos o video das 14h13; estes ajustes ainda nao foram
-publicados. O video mostra consultas de orcamento recusadas, uma orientacao geral
+Publicacao autorizada pelo usuario com a verificacao do modelo real adiada para
+depois da renovacao da cota. O video das 14h13 mostra orcamentos recusados, uma orientacao geral
 que manteve indevidamente a categoria da consulta anterior, uma correcao respondida
 so com promessa de analisar e, depois, um aviso de limite do provedor.
 
@@ -67,7 +68,7 @@ sao apagados para transformar resposta invalida em autorizacao ou escopo maior.
 Cadastro acompanhado de query e consultas explicitas iniciadas por qual/quanto/
 quais interpretadas como cadastro sao recusados antes de aceitar a resposta do
 provedor. O motivo e fixo nos logs, sem expor a mensagem. Modelos sem schema
-continuam com JSON object/texto e validacao local. Nos ajustes locais acima,
+continuam com JSON object/texto e validacao local. Nesta revisao,
 `financial_query` desses formatos usa a mesma normalizacao de controles opcionais.
 Schema
 correto nao comprova equivalencia perfeita com linguagem natural.
@@ -154,7 +155,7 @@ formatacao, vet, build, regressao de escopo, isolamento, orientacao e confirmaca
 Esses testes provam a execucao do plano; a selecao pela linguagem natural precisa
 de avaliacao real separada, com orcamento explicito e dados sinteticos.
 
-Nesta revisao, as quatro chamadas adicionais autorizadas levaram o total a 14:
+Na release anterior, das 14h02, quatro chamadas adicionais levaram o total a 14:
 
 - O formato nativo achatado acertou os dois meses, mas misturou alias/ordinal
   inaplicavel e tentou escrever um valor sem dados. A captura foi reprocessada
@@ -175,10 +176,10 @@ selecionou novembro com R$ 200,00 registrados, incluindo o aviso sobre futuro.
 Cada pedido usou uma completion. Os valores sao sinteticos. O total acumulado
 foi de 16 tentativas autorizadas, incluindo as falhas descritas acima.
 
-O formato final foi avaliado com tres pedidos reais aprovados (segundo maior,
+O formato final daquela release foi avaliado com tres pedidos reais aprovados (segundo maior,
 orcamento e maior mes anual). A pergunta de dois meses teve replay offline da
 captura anterior; nao se afirma que recebeu uma nova completion no formato final.
 Isso valida estes casos e preserva o limite economico, sem garantir que qualquer
-modelo gratuito entenda toda forma de perguntar. A revisao foi publicada com
+modelo gratuito entenda toda forma de perguntar. Aquela revisao foi publicada com
 backup restaurado isoladamente e vinte verificacoes GET aprovadas, sem novas
 completions no deploy.
