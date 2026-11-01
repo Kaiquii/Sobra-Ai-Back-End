@@ -344,7 +344,9 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 	if req.DebugStage == "assistant_intent" {
 		// JSON parsing happens before success so even models without native JSON
 		// formatting can fall back safely without executing an invalid intent.
-		if payload.ResponseFormat["type"] == "json_schema" {
+		var envelope map[string]json.RawMessage
+		_ = json.Unmarshal([]byte(cleanJSONText(text)), &envelope)
+		if payload.ResponseFormat["type"] == "json_schema" || envelope["action"] != nil {
 			normalized, err := normalizeAssistantSchemaResponse(cleanJSONText(text))
 			if err != nil {
 				return invalidRouterResponse(req.DebugStage, routerIntentJSONInvalid)
@@ -452,9 +454,12 @@ func routerPayload(model AssistantModel, req GeminiRequest) (openRouterRequest, 
 		payload.Temperature = &temperature
 	}
 	if req.DebugStage == "assistant_intent" {
-		if model.SupportsStructuredOutputs {
+		if model.SupportsStructuredOutputs && model.ID != preferredAssistantModelID {
 			payload.ResponseFormat = assistantResponseFormat(req.CategoryNames)
 		} else if model.SupportsResponseFormat {
+			// Qualification on 2026-11-01 reproduced wrong action selection with
+			// this model's native anyOf decoder (including cancel for a purchase).
+			// JSON object preserves understanding; Go still validates every plan.
 			payload.ResponseFormat = map[string]any{"type": "json_object"}
 		}
 	}

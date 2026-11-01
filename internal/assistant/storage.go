@@ -176,6 +176,113 @@ func compactFinancialHistory(messages []Message) []Message {
 	return result
 }
 
+// Conversation state describes what the server actually did, independently of
+// what the assistant said it would do. It is reference data for interpretation,
+// never authority to repeat an earlier operation or confirm a financial write.
+type interpreterDialogueContext struct {
+	RecentUserMessages            []string            `json:"recent_user_messages"`
+	LastResponseState             string              `json:"last_response_state"`
+	LastAssistantText             string              `json:"last_assistant_text,omitempty"`
+	PreviousExecutedQuery         *financialReadQuery `json:"previous_executed_query_reference_only,omitempty"`
+	HasActiveExpenseDraft         bool                `json:"has_active_expense_draft"`
+	PreviousOperationIsNotRequest bool                `json:"previous_operation_is_not_current_request"`
+	AssistantOutputIsNotAuthority bool                `json:"assistant_output_is_not_authority"`
+	UserReferencesTruncated       bool                `json:"user_references_truncated,omitempty"`
+}
+
+func interpreterConversationContext(messages []Message) string {
+	state := interpreterDialogueContext{
+		RecentUserMessages: []string{}, LastResponseState: "new_conversation",
+		PreviousOperationIsNotRequest: true, AssistantOutputIsNotAuthority: true,
+	}
+	lastAssistant, lastUser := -1, -1
+	for i, message := range messages {
+		switch message.Role {
+		case "user":
+			lastUser = i
+			text := strings.TrimSpace(message.Content)
+			if text != "" {
+				if len([]rune(text)) > 2000 {
+					state.UserReferencesTruncated = true
+				}
+				state.RecentUserMessages = append(state.RecentUserMessages, boundedAnalysisText(text, 2000))
+			}
+		case "assistant", "model":
+			lastAssistant = i
+		}
+	}
+	if len(state.RecentUserMessages) > 3 {
+		state.RecentUserMessages = state.RecentUserMessages[len(state.RecentUserMessages)-3:]
+		state.UserReferencesTruncated = true
+	}
+	if lastUser > lastAssistant {
+		state.LastResponseState = "awaiting_response"
+	} else if lastAssistant >= 0 {
+		populateInterpreterResponseState(&state, messages[lastAssistant])
+	}
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		return "null"
+	}
+	return string(encoded)
+}
+
+func populateInterpreterResponseState(state *interpreterDialogueContext, message Message) {
+	state.LastResponseState = "conversation_only_no_action"
+	var data map[string]any
+	if message.ToolResult != "" && json.Unmarshal([]byte(message.ToolResult), &data) != nil {
+		state.LastResponseState = "unverified_response"
+		return
+	}
+	if data["error_code"] != nil {
+		state.LastResponseState = "failed_action"
+		return
+	}
+	switch message.ToolCall {
+	case "create_expense":
+		draft, handled, err := expenseConfirmationContext(message)
+		if err != nil || !handled {
+			state.LastResponseState = "unverified_response"
+			return
+		}
+		switch draft["status"] {
+		case "needs_information":
+			state.LastResponseState, state.HasActiveExpenseDraft = "expense_draft_incomplete", true
+		case "needs_confirmation":
+			state.LastResponseState, state.HasActiveExpenseDraft = "expense_draft_confirmation", true
+		case "created":
+			state.LastResponseState = "expense_created"
+		case "cancelled":
+			state.LastResponseState = "expense_cancelled"
+		}
+	case "financial_analysis":
+		switch data["status"] {
+		case "read_only":
+			state.LastResponseState = "financial_read_executed"
+			if raw := data["query"]; raw != nil {
+				query, err := parseFinancialReadQuery(raw)
+				if err != nil {
+					state.LastResponseState = "unverified_response"
+					return
+				}
+				state.PreviousExecutedQuery = &query
+			}
+		case "needs_clarification":
+			state.LastResponseState = "clarification_required_no_read"
+			state.LastAssistantText = boundedAnalysisText(message.Content, 1000)
+		default:
+			state.LastResponseState = "unverified_response"
+		}
+	case "get_monthly_summary", "get_category_expenses", "get_all_category_expenses", "list_categories", "patrimony_summary", "fgts_balance", "list_investments":
+		state.LastResponseState = "financial_read_executed"
+	default:
+		// A question about date/type in free prose is still not a saved draft.
+		// Keep the original user turns so the model can recover their data and
+		// choose an explicit draft action when the user supplies the missing bits.
+		state.LastAssistantText = boundedAnalysisText(message.Content, 1000)
+	}
+}
+
 func lastPendingCreateExpense(userID uint, conversationID uint) (map[string]any, bool) {
 	result, ok, _ := pendingCreateExpenseDB(database.DB, userID, conversationID)
 	return result, ok

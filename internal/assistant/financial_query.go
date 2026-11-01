@@ -90,6 +90,12 @@ func parseFinancialReadQuery(raw any) (financialReadQuery, error) {
 	}
 	query.CategoryName = strings.TrimSpace(query.CategoryName)
 	query.PaymentSource = strings.TrimSpace(query.PaymentSource)
+	// A monthly review of one category is the same authenticated historical
+	// guidance used for its budget reference. Accept this typed synonym instead
+	// of rejecting an otherwise complete plan. Never widen periods or filters.
+	if query.Operation == "review" && query.GroupBy == "month" && query.CategoryName != "" {
+		query.Operation = "budget"
+	}
 	if len([]rune(query.CategoryName)) > 255 {
 		return query, fmt.Errorf("invalid category")
 	}

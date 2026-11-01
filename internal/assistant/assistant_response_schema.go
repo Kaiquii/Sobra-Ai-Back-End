@@ -48,6 +48,7 @@ func assistantResponseSchema(categorySets ...[]string) map[string]any {
 		"category_suggested": assistantNullableSchema(map[string]any{"type": "boolean"}),
 		"provided_fields":    map[string]any{"type": "array", "items": assistantSchemaEnum("string", "description", "category_name", "payment_source", "amount", "month", "year", "day", "type", "installments")},
 	})
+	create["description"] = "PREPARAR RASCUNHO de despesa, inclusive incompleto. Nunca grava nem confirma. Use esta acao ao registrar uma compra mesmo faltando data, tipo ou outros dados: campos ausentes sao null e o servidor pergunta. Nao use general para perguntar campos de uma compra."
 	// The portable strict subset permits nested anyOf, but the root must remain
 	// an object. Distinct intent enums make these closed action shapes exclusive.
 	return assistantSchemaObject(map[string]any{

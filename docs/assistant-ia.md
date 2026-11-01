@@ -1,5 +1,11 @@
 # Assistente IA
 
+**Atualizacao em producao em 01/11/2026:** interpretacao qualificada com modelo
+real nos seis cenarios de saldo, orcamento, cadastro e continuidade do video.
+O modelo recomendado usa JSON object com validacao no Go; schema nativo nao foi
+aprovado para esse modelo. [Evidencias e rollback](publicacao-qualificacao-ia.md),
+[metodo de avaliacao](assistant-avaliacao-real.md).
+
 **Roteamento automatico do servidor:** o app deixa de escolher modelos. POST sem
 `model_id` ou com string vazia sempre usa roteamento automatico do servidor,
 ignorando preferencias manuais antigas sem apaga-las. A escolha legada explicita
@@ -19,12 +25,12 @@ saida na interpretacao quando suportado. Consultas financeiras sao formatadas
 localmente e a rotacao apos falha vale apenas para a mensagem seguinte.
 Validacao e rollback: [publicacao-economia-ia.md](publicacao-economia-ia.md).
 
-**Analises e continuidade de rascunhos:** `financial_analysis` permite comparar
-meses, consultar rankings e elaborar conselhos usando um resumo autenticado
-antes da unica inferencia. O servidor verifica os valores e os calculos retornados.
+**Analises e continuidade de rascunhos:** planos `financial_query` permitem comparar
+meses, consultar rankings e elaborar orientacoes. O servidor consulta e calcula
+depois da unica inferencia, sem aceitar valores financeiros calculados pelo modelo.
 Detalhes, cobertura e publicacao: [publicacao-analises-ia.md](publicacao-analises-ia.md).
 
-**Evolucao local de consultas em 29/10/2026, ainda nao publicada:** a mesma
+**Evolucao de consultas em 29/10/2026:** a mesma
 interpretacao pode fornecer um plano de leitura com periodos, filtros e ranking.
 O Go executa e formata a consulta, sem confiar em valores ou conclusoes de ranking
 escritos pelo modelo. Escopo, compatibilidade e economia:

@@ -1,0 +1,36 @@
+{
+  "model": "dots-studio/dots-3-note-preview:free",
+  "corpus_sha256": "877fd9a37d685171dc568a4c270f7ec59eec96cb48a8bd56061460499a3401fb",
+  "records": [
+    {
+      "id": "budget_uber_year",
+      "response": "{\"intent\":\"financial_query\",\"query\":{\"periods\":[{\"year\":2026,\"months\":[]}],\"category_name\":\"Uber/99\",\"payment_source\":\"\",\"group_by\":\"month\",\"operation\":\"budget\",\"limit\":null,\"position\":null}}",
+      "request_sha256": "465713a3b984b9a20813e32d290441b63eb8f1217d723caf671fae05fcd5a62a"
+    },
+    {
+      "id": "residual_balance",
+      "response": "{\"intent\":\"monthly_summary\",\"month\":10,\"year\":2026}",
+      "request_sha256": "be75745c10bfeeb4d0444cca75c41082b9c3ced3cb45ebe87508c791b3c049cf"
+    },
+    {
+      "id": "incomplete_chocolate",
+      "response": "{\"intent\":\"create_expense\",\"description\":\"chocolate\",\"amount\":15,\"category_name\":\"Mercado\",\"payment_source\":\"Salario\",\"provided_fields\":[\"description\",\"amount\",\"category_name\",\"payment_source\"]}",
+      "request_sha256": "0babf801bac88588af6e49ecf7f1465d3995f04a83d275f8a3858cb11ec375bd"
+    },
+    {
+      "id": "recover_purchase",
+      "response": "{\"action\":{\"intent\":\"create_expense\",\"description\":\"chocolate\",\"amount\":15,\"category_name\":\"Mercado\",\"payment_source\":\"Salario\",\"day\":31,\"month\":10,\"year\":2026,\"type\":\"Unica\",\"installments\":1,\"new_expense\":true,\"category_suggested\":false,\"provided_fields\":[\"description\",\"amount\",\"category_name\",\"payment_source\",\"day\",\"month\",\"year\",\"type\"]}}",
+      "request_sha256": "bf5dadbc5daa5ccca81491f23b91547e9fe638ce1df9de605c0bb1c5cf2649b0"
+    },
+    {
+      "id": "global_review_after_uber",
+      "response": "{\"intent\":\"financial_query\",\"query\":{\"periods\":[{\"year\":2026,\"months\":[]}],\"category_name\":\"\",\"payment_source\":\"\",\"group_by\":\"category\",\"operation\":\"review\",\"limit\":null,\"position\":null}}",
+      "request_sha256": "be760f604134eac0949d128f8c107893612f6fbc16e5efaab176549c19d02e73"
+    },
+    {
+      "id": "cancel_draft",
+      "response": "{\"intent\":\"cancel_expense\"}",
+      "request_sha256": "868589287a8eaba32b85d10bfcd48ccbb30f3a893453823dc6aae1e4f53d67f4"
+    }
+  ]
+}

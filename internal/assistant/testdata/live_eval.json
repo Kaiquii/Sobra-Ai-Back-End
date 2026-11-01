@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "now": "2026-10-31T21:00:00-03:00",
+  "categories": [
+    "Mercado",
+    "Uber/99",
+    "Presentes"
+  ],
+  "cases": [
+    {
+      "id": "budget_uber_year",
+      "message": "Quero que vc olhe o quanto gastei de uber mês a mês ao decorrer do ano e passa um teto de gasto que devo adotar daqui pra frente",
+      "expect": {
+        "kind": "query",
+        "operation": "budget",
+        "group_by": "month",
+        "category": "Uber/99",
+        "year": 2026,
+        "months": []
+      }
+    },
+    {
+      "id": "residual_balance",
+      "message": "E quanto sobrou?",
+      "history": [
+        {
+          "role": "user",
+          "content": "Some minhas despesas de outubro de 2026."
+        },
+        {
+          "role": "assistant",
+          "content": "Em outubro, suas despesas cadastradas somam R$ 500,00.",
+          "tool_call": "financial_analysis",
+          "tool_result": "{\"status\":\"read_only\",\"query\":{\"periods\":[{\"year\":2026,\"months\":[10]}],\"group_by\":\"month\",\"operation\":\"sum\",\"limit\":24}}"
+        }
+      ],
+      "expect": {
+        "kind": "balance",
+        "year": 2026,
+        "months": [
+          10
+        ]
+      }
+    },
+    {
+      "id": "incomplete_chocolate",
+      "message": "Cadastra uma despesa: chocolate, 15 reais, pago com salário, categoria Mercado.",
+      "expect": {
+        "kind": "create_partial"
+      }
+    },
+    {
+      "id": "recover_purchase",
+      "message": "Única comprei hj",
+      "history": [
+        {
+          "role": "user",
+          "content": "Cadastra uma despesa: chocolate, 15 reais, pago com salário, categoria Mercado."
+        },
+        {
+          "role": "assistant",
+          "content": "Claro, posso ajudar a cadastrar essa despesa. Qual foi a data e o tipo?"
+        }
+      ],
+      "expect": {
+        "kind": "create_recovered"
+      }
+    },
+    {
+      "id": "global_review_after_uber",
+      "message": "Mudando de assunto: quero uma análise geral de onde posso reduzir meus gastos de 2026, considerando todas as categorias.",
+      "history": [
+        {
+          "role": "user",
+          "content": "Quanto gastei de Uber/99 em outubro de 2026?"
+        },
+        {
+          "role": "assistant",
+          "content": "Os gastos cadastrados de Uber/99 somam R$ 80,00.",
+          "tool_call": "financial_analysis",
+          "tool_result": "{\"status\":\"read_only\",\"query\":{\"periods\":[{\"year\":2026,\"months\":[10]}],\"category_name\":\"Uber/99\",\"payment_source\":\"Salario\",\"group_by\":\"month\",\"operation\":\"sum\",\"limit\":24}}"
+        }
+      ],
+      "expect": {
+        "kind": "query",
+        "operation": "review",
+        "group_by": "category",
+        "category": "",
+        "year": 2026,
+        "months": []
+      }
+    },
+    {
+      "id": "cancel_draft",
+      "message": "Deixa pra lá, não quero cadastrar mais.",
+      "history": [
+        {
+          "role": "user",
+          "content": "Cadastre chocolate por 15 reais."
+        },
+        {
+          "role": "assistant",
+          "content": "Antes de cadastrar, preciso de categoria, fonte, data e tipo.",
+          "tool_call": "create_expense",
+          "tool_result": "{\"draft_version\":2,\"status\":\"needs_information\",\"description\":\"chocolate\",\"amount\":15}"
+        }
+      ],
+      "draft": {
+        "draft_version": 2,
+        "status": "needs_information",
+        "description": "chocolate",
+        "amount": 15
+      },
+      "expect": {
+        "kind": "cancel"
+      }
+    }
+  ]
+}

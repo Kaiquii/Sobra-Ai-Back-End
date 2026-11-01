@@ -1,0 +1,87 @@
+package assistant
+
+import (
+	"encoding/json"
+	"os"
+	"testing"
+)
+
+func TestQualifiedModelUsesJSONWithServerValidation(t *testing.T) {
+	model := AssistantModel{ID: preferredAssistantModelID, ContextLength: 32768, SupportsStructuredOutputs: true, SupportsResponseFormat: true}
+	payload, err := routerPayload(model, GeminiRequest{DebugStage: "assistant_intent"})
+	if err != nil || payload.ResponseFormat["type"] != "json_object" {
+		t.Fatalf("unqualified native format enabled: %v %v", payload.ResponseFormat, err)
+	}
+}
+
+func TestCapturedQualifiedPlansRemainExecutable(t *testing.T) {
+	data, err := os.ReadFile("testdata/qualified_responses_20261101.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Records []struct {
+			ID       string `json:"id"`
+			Response string `json:"response"`
+		} `json:"records"`
+	}
+	if json.Unmarshal(data, &fixture) != nil || len(fixture.Records) != 6 {
+		t.Fatal("invalid qualification fixture")
+	}
+	for _, record := range fixture.Records {
+		t.Run(record.ID, func(t *testing.T) {
+			text, err := normalizeAssistantSchemaResponse(record.Response)
+			if err != nil {
+				t.Fatal(err)
+			}
+			intent, err := parseFinancialIntent(text)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch record.ID {
+			case "budget_uber_year", "global_review_after_uber":
+				query, err := parseFinancialReadQuery(intent.provided["query"])
+				want := "budget"
+				if record.ID == "global_review_after_uber" {
+					want = "review"
+				}
+				if err != nil || query.Operation != want || len(query.Periods) != 1 || query.Periods[0].Year != 2026 {
+					t.Fatalf("query lost semantics: %+v %v", query, err)
+				}
+			case "residual_balance":
+				if intent.Intent != "monthly_summary" || intent.Month != 10 || intent.Year != 2026 {
+					t.Fatal("balance became expenses")
+				}
+			case "incomplete_chocolate", "recover_purchase":
+				if intent.Intent != "create_expense" {
+					t.Fatal("purchase became conversation")
+				}
+				args := expenseArgsFromIntent(intent)
+				draft, _ := prepareExpenseDraft(args)
+				want := "needs_information"
+				if record.ID == "recover_purchase" {
+					want = "needs_confirmation"
+				}
+				if draft["status"] != want || draft["amount"] != float64(15) || draft["category_name"] != "Mercado" || args["confirm"] != false {
+					t.Fatalf("draft lost fields or bypassed confirmation: %v", draft)
+				}
+			case "cancel_draft":
+				if intent.Intent != "cancel_expense" {
+					t.Fatal("cancellation became another action")
+				}
+			}
+		})
+	}
+}
+
+func TestMonthlyCategoryReviewCompilesToHistoricalBudgetWithoutWidening(t *testing.T) {
+	raw := map[string]any{"periods": []any{map[string]any{"year": 2026, "months": []int{5, 6}}}, "category_name": "Uber/99", "payment_source": "Salario", "group_by": "month", "operation": "review"}
+	query, err := parseFinancialReadQuery(raw)
+	if err != nil || query.Operation != "budget" || query.CategoryName != "Uber/99" || query.PaymentSource != "Salario" || len(query.Periods) != 1 || len(query.Periods[0].Months) != 2 {
+		t.Fatalf("monthly guidance lost scope: %+v %v", query, err)
+	}
+	raw["category_name"] = ""
+	if _, err := parseFinancialReadQuery(raw); err == nil {
+		t.Fatal("monthly guidance without category was silently widened")
+	}
+}

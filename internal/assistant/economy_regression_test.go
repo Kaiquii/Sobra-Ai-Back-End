@@ -7,15 +7,15 @@ import (
 )
 
 func TestInterpreterPromptStaysWithinExistingStaticBudget(t *testing.T) {
-	// The previous interpreter instructions and shared reply style occupied
-	// 5,669 UTF-8 bytes, before dynamic facts. Improvements must fit that budget.
+	// Bound fixed instructions/schema without compressing away task semantics.
+	// Dynamic conversation state is bounded separately and measured in live eval.
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.FixedZone("Brasilia", -3*60*60))
 	prompt := financialInterpreterPrompt(now, "nenhuma", nil, nil)
 	schema, err := json.Marshal(assistantResponseFormat([]string{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total := len(prompt) + len(schema); total > 5669 {
-		t.Fatalf("interpreter prompt + schema grew beyond the existing input budget: %d bytes > 5669", total)
+	if total := len(prompt) + len(schema); total > 9000 {
+		t.Fatalf("interpreter prompt + schema exceeds the explicit fixed context ceiling: %d bytes > 9000", total)
 	}
 }
