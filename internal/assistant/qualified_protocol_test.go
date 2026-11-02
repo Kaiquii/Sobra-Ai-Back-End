@@ -1,9 +1,12 @@
 package assistant
 
 import (
+	"Sobra_Ai_Back-end/internal/expenses"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestQualifiedModelUsesJSONWithServerValidation(t *testing.T) {
@@ -47,6 +50,18 @@ func TestCapturedQualifiedPlansRemainExecutable(t *testing.T) {
 				}
 				if err != nil || query.Operation != want || len(query.Periods) != 1 || query.Periods[0].Year != 2026 {
 					t.Fatalf("query lost semantics: %+v %v", query, err)
+				}
+				if want == "budget" {
+					// Continue the actual captured plan through the renderer with a
+					// synthetic authenticated snapshot. A valid intent alone is not
+					// sufficient if the user never receives the requested proposal.
+					reply, result, err := renderFinancialGuidance(query, 7, []expenses.Expense{
+						{UserID: 7, CategoryID: 1, Amount: 100, Month: 8, Year: 2026, PaymentSource: "Salario"},
+						{UserID: 7, CategoryID: 1, Amount: 200, Month: 9, Year: 2026, PaymentSource: "Salario"},
+					}, nil, map[uint]string{1: "Uber/99"}, time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC))
+					if err != nil || result["suggested_monthly_target"] != float64(150) || !strings.Contains(reply, "sugiro **R$ 150,00**") {
+						t.Fatalf("qualified intent did not deliver a reference: %v %+v %s", err, result, reply)
+					}
 				}
 			case "residual_balance":
 				if intent.Intent != "monthly_summary" || intent.Month != 10 || intent.Year != 2026 {

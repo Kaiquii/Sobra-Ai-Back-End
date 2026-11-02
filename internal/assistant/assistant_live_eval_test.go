@@ -260,19 +260,15 @@ func liveEvalMismatch(entry liveEvalCase, intent financialIntent, now time.Time)
 			return "cancellation_not_understood"
 		}
 	case "balance":
-		if intent.Intent == "monthly_summary" && intent.Month == expected.Months[0] && intent.Year == expected.Year {
+		// The executor prioritizes query whenever present. A correct-looking
+		// monthly_summary with a stale expense query would still answer expenses.
+		if _, present := intent.provided["query"]; present {
+			return "balance_has_query_override"
+		}
+		if len(expected.Months) == 1 && intent.Intent == "monthly_summary" && intent.Month == expected.Months[0] && intent.Year == expected.Year {
 			return ""
 		}
-		if intent.Intent != "financial_query" {
-			return "balance_not_understood"
-		}
-		var raw map[string]any
-		data, _ := json.Marshal(intent.provided["query"])
-		_ = json.Unmarshal(data, &raw)
-		if raw["operation"] != "balance" || raw["group_by"] != "month" {
-			return "balance_replaced_by_expenses"
-		}
-		return liveEvalQueryScope(raw, expected)
+		return "balance_not_understood"
 	case "query":
 		if intent.Intent != "financial_query" {
 			return "query_not_understood"
@@ -350,13 +346,26 @@ func TestAssistantEvalCorpus(t *testing.T) {
 		t.Fatal(err)
 	}
 	var corpus liveEvalCorpus
-	if json.Unmarshal(data, &corpus) != nil || len(corpus.Cases) != 6 || corpus.Now.IsZero() {
+	if json.Unmarshal(data, &corpus) != nil || len(corpus.Cases) < 18 || corpus.Now.IsZero() {
 		t.Fatal("invalid frozen corpus")
+	}
+	seen := map[string]bool{}
+	for _, entry := range corpus.Cases {
+		if entry.ID == "" || entry.Message == "" || seen[entry.ID] {
+			t.Fatal("empty or duplicate corpus case")
+		}
+		seen[entry.ID] = true
 	}
 	if reason := liveEvalMismatch(liveEvalCase{Expect: liveEvalExpectation{Kind: "balance", Year: 2026, Months: []int{10}}}, financialIntent{Intent: "monthly_summary", Month: 10, Year: 2026}, corpus.Now); reason != "" {
 		t.Fatal(reason)
 	}
 	if reason := liveEvalMismatch(liveEvalCase{Expect: liveEvalExpectation{Kind: "balance", Year: 2026, Months: []int{10}}}, financialIntent{Intent: "financial_query", provided: map[string]any{"query": map[string]any{"operation": "sum", "group_by": "month"}}}, corpus.Now); reason == "" {
 		t.Fatal("expenses incorrectly accepted as balance")
+	}
+	for _, operation := range []string{"sum", "balance"} {
+		intent := financialIntent{Intent: "monthly_summary", Month: 10, Year: 2026, provided: map[string]any{"query": map[string]any{"operation": operation, "group_by": "month"}}}
+		if liveEvalMismatch(liveEvalCase{Expect: liveEvalExpectation{Kind: "balance", Year: 2026, Months: []int{10}}}, intent, corpus.Now) == "" {
+			t.Fatal("shadow query incorrectly qualified as an executable balance")
+		}
 	}
 }

@@ -249,3 +249,45 @@ func TestBudgetCentRoundingAndCalendarBoundary(t *testing.T) {
 		t.Fatalf("cent arithmetic or year rollover changed the reference: %v %+v", err, result)
 	}
 }
+
+// Checking only the model's operation=budget missed the failure in the 01/11
+// video: the final answer repeated statistics instead of proposing a reference.
+func TestBudgetDeliversProposedTargetFromVerifiedHistory(t *testing.T) {
+	query := financialReadQuery{Periods: []financialReadPeriod{{Year: 2032}}, CategoryName: "Uber/99", GroupBy: "month", Operation: "budget"}
+	for _, test := range []struct {
+		name    string
+		amounts []float64
+		want    any
+	}{
+		{"no history", nil, nil},
+		{"only one month", []float64{200}, nil},
+		{"observed mean not maximum", []float64{150, 250}, float64(200)},
+		{"round to cent", []float64{0.01, 0.02}, float64(0.02)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var rows []expenses.Expense
+			for i, amount := range test.amounts {
+				rows = append(rows, guidanceTestExpense(1, amount, i+1))
+			}
+			// Partial and future values must not inflate the proposal.
+			rows = append(rows, guidanceTestExpense(1, 9999, 6), guidanceTestExpense(1, 9999, 7))
+			reply, result, err := renderFinancialGuidance(query, 41, rows, nil, map[uint]string{1: "Uber/99"}, guidanceTestNow())
+			if err != nil || result["suggested_monthly_target"] != test.want {
+				t.Fatalf("proposal changed scope or invented history: %v %+v", err, result)
+			}
+			if test.want == nil {
+				if strings.Contains(reply, "sugiro **R$") || result["target_basis"] != nil {
+					t.Fatal("insufficient history became a numeric target")
+				}
+				return
+			}
+			if result["target_basis"] != "completed_registered_month_average" || result["target_saved"] != false || result["target_is_affordability_limit"] != false {
+				t.Fatalf("proposal claimed persistence or affordability: %+v", result)
+			}
+			proposal := "sugiro **R$ " + formatMoney(test.want.(float64)) + "**"
+			if !strings.Contains(reply, proposal) || strings.Index(reply, proposal) > strings.Index(reply, "Escopo:") || !strings.Contains(reply, "nenhuma meta foi salva") {
+				t.Fatalf("answer did not lead with an actionable reference: %s", reply)
+			}
+		})
+	}
+}

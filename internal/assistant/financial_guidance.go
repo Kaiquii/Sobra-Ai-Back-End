@@ -292,6 +292,13 @@ func renderCategoryBudget(query financialReadQuery, months map[int]*financialGui
 		average := (historicalTotal + int64(history)/2) / int64(history)
 		result["historical_average_amount"], result["historical_max_amount"] = float64(average)/100, float64(highest)/100
 		result["historical_cash_income"], result["historical_other_cash_expense"] = float64(cashIncome)/100, float64(otherCash)/100
+		// Give the requested planning target, with a reproducible basis. This is
+		// a suggested historical reference, never an affordability calculation or
+		// a persisted limit. Missing months are deliberately not assumed to be zero.
+		result["suggested_monthly_target"] = float64(average) / 100
+		result["target_basis"] = "completed_registered_month_average"
+		result["target_is_affordability_limit"], result["target_saved"] = false, false
+		lines = append(lines, "Como teto mensal inicial de planejamento para **"+financialQueryLabel(query.CategoryName)+"**, sugiro **R$ "+formatMoney(float64(average)/100)+"**, para manter o gasto na media do seu historico. E uma referencia provisoria, nao uma garantia de que esse valor cabe na sua renda; nenhuma meta foi salva no aplicativo.")
 		lines = append(lines, fmt.Sprintf("A media cadastrada foi **R$ %s** e o maior valor mensal foi **R$ %s**, considerando %d meses encerrados com registros da categoria. Sao referencias para uma estimativa, nao um limite seguro ou previsao garantida.", formatMoney(float64(average)/100), formatMoney(float64(highest)/100), history))
 	} else {
 		lines = append(lines, "Ainda nao ha historico suficiente para uma referencia mensal: sao necessarios ao menos dois meses encerrados com registros dessa categoria.")
@@ -310,8 +317,12 @@ func renderCategoryBudget(query financialReadQuery, months map[int]*financialGui
 	if history >= 2 && (cashIncome > 0 || otherCash > 0) {
 		lines = append(lines, "Nos mesmos meses usados na referencia: **R$ "+formatMoney(float64(cashIncome)/100)+"** de rendas em dinheiro e **R$ "+formatMoney(float64(otherCash)/100)+"** de outras despesas em dinheiro cadastradas. Esses totais nao demonstram dinheiro livre.")
 	}
+	nextStep := "Antes de adotar essa referencia, confira seu objetivo mensal e as despesas essenciais ainda nao cadastradas. Se quiser reduzir o gasto, diga quanto pretende economizar por mes para ajustarmos a proposta."
+	if history < 2 {
+		nextStep = "Para propor um teto sem inventar um valor, preciso de mais historico ou de um objetivo mensal informado por voce, considerando suas despesas essenciais. Voce pode consultar outro periodo para ampliar o historico."
+	}
 	lines = append(lines,
-		"Para escolher um teto, avalie seu objetivo mensal e as despesas essenciais ainda nao cadastradas. Voce pode consultar outro periodo para ampliar o historico.",
+		nextStep,
 		"O mes atual e os futuros ficam fora da referencia historica. Valores cadastrados nao comprovam pagamento ou recebimento; VA/VR nao sao dinheiro livre.",
 	)
 	return strings.Join(lines, "\n\n")

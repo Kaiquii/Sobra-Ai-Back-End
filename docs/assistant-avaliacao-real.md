@@ -39,3 +39,26 @@ O corpus cobre os erros do video: orcamento anual de categoria, saldo apos
 despesas, compra incompleta, recuperacao de compra, troca de assunto global e
 cancelamento. Ampliar com variacoes independentes conforme novos comportamentos
 forem suportados. A aprovacao desses casos nao e garantia universal de acerto.
+
+## Revisao do video de 01/11 a noite
+
+O corpus v2 tem 18 casos: os seis originais e 12 variacoes de linguagem,
+correcao e continuidade. Os novos casos ainda nao foram executados com provedor
+real. Nao apresentar o resultado antigo de 6/6 como aprovacao dos 18 casos.
+O teste offline de estrutura do corpus nao mede entendimento do modelo.
+
+A expectativa de saldo agora exige monthly_summary sem query sobreposta:
+o executor prioriza query quando ela existe, e operation=balance nao pertence
+ao contrato de financialReadQuery. O avaliador anterior aceitava essa operacao
+nao executavel. O modelo deve produzir uma acao que o servidor suporta.
+
+A qualidade tambem depende da resposta construida depois da interpretacao.
+TestBudgetDeliversProposedTargetFromVerifiedHistory verifica a entrega de uma
+proposta numerica de planejamento, sua base, arredondamento e ausencia de
+gravacao. Esses testes validam o calculo/resposta deterministico, nao o modelo.
+
+O video navega por respostas de 31/10 (saldo e compra) e mensagens de 01/11
+(planejamento). Respostas antigas continuam no historico apos publicar codigo;
+nao sao evidencia de nova execucao da ultima versao. A nova pergunta no final
+fica em Pensando quando a gravacao termina, sem resposta visivel para avaliar.
+Nao atribuir esses trechos automaticamente a uma regressao da ultima release.
