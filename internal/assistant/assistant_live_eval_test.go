@@ -37,6 +37,7 @@ type liveEvalCase struct {
 	Expect  liveEvalExpectation `json:"expect"`
 }
 type liveEvalCorpus struct {
+	Facts      map[string]any `json:"facts"`
 	Version    int            `json:"version"`
 	Now        time.Time      `json:"now"`
 	Categories []string       `json:"categories"`
@@ -168,6 +169,12 @@ func TestAssistantLiveEvaluation(t *testing.T) {
 	for _, id := range selection {
 		entry := byID[id]
 		request := buildInterpreterRequest(corpus.Now, corpus.Categories, entry.History, entry.Message, entry.Draft)
+		if corpus.Facts != nil {
+			request, err = interpreterRequestWithFacts(corpus.Now, corpus.Categories, entry.History, entry.Message, corpus.Facts, entry.Draft)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
 		if os.Getenv("ASSISTANT_EVAL_BASELINE") == "1" {
 			request.SystemInstruction.Parts[0].Text = baselineFinancialInterpreterPrompt(corpus.Now, strings.Join(corpus.Categories, ", "), nil, entry.Draft)
 			request.Contents = buildConversationFromMessages(compactFinancialHistory(entry.History), entry.Message)
@@ -198,6 +205,7 @@ func TestAssistantLiveEvaluation(t *testing.T) {
 				if parseErr != nil {
 					record.Reason = "invalid_intent"
 				} else {
+					intent.facts = corpus.Facts
 					record.Actual = liveEvalPlan(intent)
 					record.Reason = liveEvalMismatch(entry, intent, corpus.Now)
 					record.Passed = record.Reason == ""
@@ -255,6 +263,15 @@ func liveEvalPlan(intent financialIntent) map[string]any {
 func liveEvalMismatch(entry liveEvalCase, intent financialIntent, now time.Time) string {
 	expected := entry.Expect
 	switch expected.Kind {
+	case "analysis":
+		if intent.Intent != "financial_analysis" {
+			return "analysis_not_understood"
+		}
+		_, _, _, result := analysisReply(intent)
+		if result.(map[string]any)["status"] != "read_only" {
+			return "analysis_not_verified"
+		}
+		return ""
 	case "cancel":
 		if intent.Intent != "cancel_expense" {
 			return "cancellation_not_understood"

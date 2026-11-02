@@ -211,8 +211,8 @@ func TestAssistantResponseSchemaUsesClosedRequiredObjectsAndSupportedIntents(t *
 		t.Fatalf("native envelope must contain only action: %v", properties)
 	}
 	alternatives, ok := action["anyOf"].([]any)
-	if !ok || len(alternatives) != 5 {
-		t.Fatalf("expected five nested action branches: %+v", action)
+	if !ok || len(alternatives) != 6 {
+		t.Fatalf("expected six nested action branches: %+v", action)
 	}
 	var intents []string
 	for _, rawBranch := range alternatives {
@@ -220,13 +220,13 @@ func TestAssistantResponseSchemaUsesClosedRequiredObjectsAndSupportedIntents(t *
 		intentSchema := branch["properties"].(map[string]any)["intent"].(map[string]any)
 		for _, value := range intentSchema["enum"].([]any) {
 			intent := value.(string)
-			if !validAssistantIntent(intent) || intent == "financial_analysis" || intent == "category_expenses" || intent == "all_category_expenses" {
+			if !validAssistantIntent(intent) || intent == "category_expenses" || intent == "all_category_expenses" {
 				t.Errorf("schema permits unsupported or legacy financial intent %q", intent)
 			}
 			intents = append(intents, intent)
 		}
 	}
-	wantIntents := []string{"general", "app_help", "financial_query", "monthly_summary", "list_categories", "create_expense", "cancel_expense", "patrimony_summary", "fgts_balance", "list_investments"}
+	wantIntents := []string{"financial_analysis", "general", "app_help", "financial_query", "monthly_summary", "list_categories", "create_expense", "cancel_expense", "patrimony_summary", "fgts_balance", "list_investments"}
 	sort.Strings(intents)
 	sort.Strings(wantIntents)
 	if !reflect.DeepEqual(intents, wantIntents) {

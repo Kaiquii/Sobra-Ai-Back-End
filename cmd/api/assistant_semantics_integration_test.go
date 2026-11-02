@@ -517,8 +517,8 @@ func TestIntegrationAssistantFinancialSemantics(t *testing.T) {
 			}
 			delete(want, name)
 		}
-		if len(want) != 0 || !strings.Contains(answer["reply"].(string), "2034") || strings.Contains(prompt, "1730.5") || strings.Contains(prompt, "80.5") {
-			t.Fatal("review omitted its year or sent financial facts to the interpreter")
+		if len(want) != 0 || !strings.Contains(answer["reply"].(string), "2034") || !strings.Contains(prompt, "FATOS_ATUAIS") || !strings.Contains(prompt, "80.5") {
+			t.Fatal("review omitted its year or authenticated financial facts")
 		}
 	})
 
@@ -547,7 +547,7 @@ func TestIntegrationAssistantFinancialSemantics(t *testing.T) {
 			}
 		}
 		lower := strings.ToLower(answer["reply"].(string))
-		if !strings.Contains(lower, "uber/99") || !strings.Contains(lower, "objetivo") || !strings.Contains(lower, "futur") || strings.Contains(lower, "mercado") || strings.Contains(lower, "compras parceladas") || strings.Contains(prompt, "80.5") {
+		if !strings.Contains(lower, "uber/99") || !strings.Contains(lower, "objetivo") || !strings.Contains(lower, "futur") || strings.Contains(lower, "mercado") || strings.Contains(lower, "compras parceladas") || !strings.Contains(prompt, "FATOS_ATUAIS") {
 			t.Fatalf("category budgeting became an unrelated annual report: %+v", answer)
 		}
 	})

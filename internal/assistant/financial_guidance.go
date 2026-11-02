@@ -25,9 +25,12 @@ type financialGuidanceCategory struct {
 // Guidance is rendered from an authenticated read snapshot. It never treats a
 // registered balance or historical average as a safe spending authorization.
 func renderFinancialGuidance(query financialReadQuery, userID uint, expenseRows []expenses.Expense, incomeRows []incomes.Income, names map[uint]string, now time.Time) (string, map[string]any, error) {
-	if userID == 0 || now.IsZero() || query.Limit < 0 || query.Limit > 24 || (query.Operation != "review" && query.Operation != "budget") ||
+	if userID == 0 || now.IsZero() || query.Limit < 0 || query.Limit > 24 || (query.Operation != "review" && query.Operation != "budget" && query.Operation != "savings") ||
 		(query.Operation == "review" && query.GroupBy != "category") || (query.Operation == "budget" && query.GroupBy != "month") {
 		return "", nil, fmt.Errorf("invalid guidance scope")
+	}
+	if query.Operation == "savings" {
+		return renderSavingsPlan(query, userID, expenseRows, incomeRows, now)
 	}
 	category := strings.TrimSpace(query.CategoryName)
 	var categoryID uint

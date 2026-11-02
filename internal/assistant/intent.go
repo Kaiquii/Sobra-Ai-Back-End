@@ -143,13 +143,24 @@ func interpretFinancialIntent(client textGenerator, userID uint, message string,
 
 func interpretFinancialIntentWithHistory(client textGenerator, userID uint, message string, history []Message, drafts ...map[string]any) (financialIntent, error) {
 	now := assistantNow()
-	// Interpretation needs scope and references, not the user's entire annual
-	// ledger. Authenticated financial reads happen after the single completion.
+	// The model receives bounded current facts before its single completion.
+	// Exact queries still execute through the authenticated Go executor.
 	categoryNames, err := categoryNamesForInterpreter(userID)
 	if err != nil {
 		return financialIntent{}, fmt.Errorf("assistant category context unavailable")
 	}
-	text, err := client.generateText(buildInterpreterRequest(now, categoryNames, history, message, drafts...))
+	facts, err := analysisContextForClient(client, userID, message, history)
+	if err != nil {
+		return financialIntent{}, fmt.Errorf("assistant financial context unavailable")
+	}
+	request := buildInterpreterRequest(now, categoryNames, history, message, drafts...)
+	if facts != nil {
+		request, err = interpreterRequestWithFacts(now, categoryNames, history, message, facts, drafts...)
+	}
+	if err != nil {
+		return financialIntent{}, err
+	}
+	text, err := client.generateText(request)
 	if err != nil {
 		return financialIntent{}, err
 	}
@@ -178,16 +189,7 @@ func interpretFinancialIntentWithHistory(client textGenerator, userID uint, mess
 			intent.Installments = 1
 		}
 	}
-	// Legacy analytical output is verified after generation, without another call.
-	if intent.Intent == "financial_analysis" || intent.Intent == "general" || intent.Intent == "app_help" {
-		if financialMoneyPattern.MatchString(financialValidationText(intent.Reply)) || intent.Intent == "financial_analysis" {
-			facts, err := analysisContextForClient(client, userID, message, history)
-			if err != nil {
-				return financialIntent{}, fmt.Errorf("assistant financial context unavailable")
-			}
-			intent.facts = facts
-		}
-	}
+	intent.facts = facts
 
 	return normalizeInterpretedIntent(intent), nil
 }

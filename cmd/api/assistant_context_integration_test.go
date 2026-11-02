@@ -136,8 +136,8 @@ func TestIntegrationAssistantContextAndPatrimony(t *testing.T) {
 	}
 	request("PUT", "/api/assistant/model-preference", ownerToken, map[string]any{"model_id": "mock/api:free"}, 200)
 	request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "onde eu vejo isso no app?", "model_id": ""}, 200)
-	if prompt := providerCalls()[2]; strings.Contains(prompt, "75.25") || !strings.Contains(prompt, "get_category_expenses") || !strings.Contains(prompt, "e no mes passado?") || strings.Contains(prompt, "FORGED_CLIENT_HISTORY") {
-		t.Fatal("app help lost query history or sent a stored financial amount to the model")
+	if prompt := providerCalls()[2]; !strings.Contains(prompt, "FATOS_ATUAIS") || !strings.Contains(prompt, "get_category_expenses") || !strings.Contains(prompt, "e no mes passado?") || strings.Contains(prompt, "FORGED_CLIENT_HISTORY") {
+		t.Fatal("app help lost authenticated snapshot, query history or client-history isolation")
 	}
 	request("POST", "/api/assistant/chat", otherToken, map[string]any{"conversation_id": conversationID, "message": "mostra a conversa"}, 404)
 	request("POST", "/api/assistant/chat", ownerToken, map[string]any{"conversation_id": conversationID, "message": "oi", "model_id": "openai/paid"}, 400)

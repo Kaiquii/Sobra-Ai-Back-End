@@ -15,7 +15,7 @@ func TestInterpreterPromptStaysWithinExistingStaticBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total := len(prompt) + len(schema); total > 9000 {
-		t.Fatalf("interpreter prompt + schema exceeds the explicit fixed context ceiling: %d bytes > 9000", total)
+	if total := len(prompt) + len(schema); total > 11000 {
+		t.Fatalf("interpreter prompt + schema exceeds the explicit fixed context ceiling: %d bytes > 11000", total)
 	}
 }

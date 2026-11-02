@@ -111,7 +111,7 @@ func parseFinancialReadQuery(raw any) (financialReadQuery, error) {
 		return query, fmt.Errorf("invalid grouping")
 	}
 	switch query.Operation {
-	case "list", "compare", "max", "min", "sum", "average", "review", "budget":
+	case "list", "compare", "max", "min", "sum", "average", "review", "budget", "savings":
 	default:
 		return query, fmt.Errorf("invalid operation")
 	}
@@ -136,6 +136,9 @@ func parseFinancialReadQuery(raw any) (financialReadQuery, error) {
 	}
 	if query.Operation == "budget" && (query.GroupBy != "month" || query.CategoryName == "") {
 		return query, fmt.Errorf("budget requires a category and months")
+	}
+	if query.Operation == "savings" && (query.GroupBy != "month" || query.CategoryName != "" || query.PaymentSource != "") {
+		return query, fmt.Errorf("savings requires all cash flows by month")
 	}
 	years := map[int]map[int]bool{}
 	for _, period := range query.Periods {
@@ -193,7 +196,7 @@ func executeFinancialQueryDB(ctx context.Context, db *gorm.DB, userID uint, raw 
 	var rows []financialReadRow
 	var guidanceReply string
 	var guidanceResult map[string]any
-	guidance := query.Operation == "review" || query.Operation == "budget"
+	guidance := query.Operation == "review" || query.Operation == "budget" || query.Operation == "savings"
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var categoryID uint
 		if query.CategoryName != "" {

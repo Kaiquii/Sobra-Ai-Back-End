@@ -333,6 +333,111 @@
       "expect": {
         "kind": "cancel"
       }
+    },
+    {
+      "expect": {
+        "operation": "savings",
+        "category": "",
+        "months": [
+          10
+        ],
+        "year": 2026,
+        "group_by": "month",
+        "kind": "query"
+      },
+      "message": "Estou planejando comprar um carro ano que vem, quanto consigo guardar por mes de acordo com minhas dividas?",
+      "id": "savings_car"
+    },
+    {
+      "history": [
+        {
+          "content": "Estou planejando comprar um carro ano que vem, quanto consigo guardar por mes de acordo com minhas dividas?",
+          "role": "user"
+        },
+        {
+          "role": "assistant",
+          "tool_call": "financial_analysis",
+          "content": "Planejamento para Dividas: media mensal 308,73.",
+          "tool_result": "{\"status\":\"read_only\",\"query\":{\"periods\":[{\"year\":2026,\"months\":[]}],\"category_name\":\"Dividas\",\"group_by\":\"month\",\"operation\":\"budget\"}}"
+        }
+      ],
+      "expect": {
+        "operation": "savings",
+        "category": "",
+        "months": [
+          10
+        ],
+        "year": 2026,
+        "group_by": "month",
+        "kind": "query"
+      },
+      "message": "Vc entendeu errado, quanto posso guardar por mes pro meu carro?",
+      "id": "savings_correction"
+    },
+    {
+      "message": "Quero comprar um carro no ano que vem. Como avalio quanto posso guardar sem me apertar?",
+      "id": "open_capacity",
+      "expect": {
+        "kind": "analysis"
+      }
+    },
+    {
+      "message": "Explique o que preciso avaliar antes de assumir uma nova prestação com minha situação atual.",
+      "id": "open_priority",
+      "expect": {
+        "kind": "analysis"
+      }
+    },
+    {
+      "message": "Pelas minhas rendas e despesas, como equilibrar uma reserva e uma compra planejada?",
+      "id": "open_tradeoff",
+      "expect": {
+        "kind": "analysis"
+      }
+    },
+    {
+      "message": "Quero uma estratégia para juntar dinheiro para uma viagem. O que você consegue concluir dos meus dados e o que ainda precisa saber?",
+      "id": "open_missing",
+      "expect": {
+        "kind": "analysis"
+      }
+    },
+    {
+      "message": "Explique por que meu total recebido não é todo dinheiro disponível para gastar.",
+      "id": "open_explanation",
+      "expect": {
+        "kind": "analysis"
+      }
+    },
+    {
+      "message": "Não quero a média de uma categoria. Quero entender minha situação financeira e as limitações desse cálculo.",
+      "id": "open_correction",
+      "expect": {
+        "kind": "analysis"
+      }
     }
-  ]
+  ],
+  "facts": {
+    "as_of": "2026-10-31",
+    "periods": [
+      {
+        "categories_complete": true,
+        "year": 2026,
+        "months_with_records": [
+          {
+            "total_cash_expense": 1300,
+            "total_cash_balance": 700,
+            "month": 10,
+            "total_cash_income": 2000
+          }
+        ],
+        "categories": [],
+        "total_income": 2000,
+        "total_expense": 1300
+      }
+    ],
+    "years": [
+      2026
+    ]
+  }
 }

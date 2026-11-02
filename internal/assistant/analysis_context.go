@@ -301,7 +301,11 @@ func analysisContextForClient(client textGenerator, userID uint, message string,
 		ctx = router.ctx
 	}
 	now := assistantNow()
-	return loadAnalysisFacts(ctx, database.DB, userID, analysisYears(message, history, now), now)
+	years := analysisYears(message, history, now)
+	if len(years) == 1 && years[0] != now.Year() {
+		years = append(years, now.Year())
+	}
+	return loadAnalysisFacts(ctx, database.DB, userID, years, now)
 }
 
 func analysisReply(intent financialIntent) (bool, string, string, any) {

@@ -466,7 +466,8 @@ func routerPayload(model AssistantModel, req GeminiRequest) (openRouterRequest, 
 	if req.DebugStage == "assistant_intent" && model.CanDisableReasoning {
 		// Interpretation has a shared output budget. Disable optional
 		// reasoning, rather than merely hiding it and consuming the same budget.
-		payload.Reasoning = map[string]bool{"enabled": false}
+		enabled, _ := req.GenerationConfig["enable_reasoning"].(bool)
+		payload.Reasoning = map[string]bool{"enabled": enabled}
 	}
 	if req.DebugStage == "assistant_intent" && !model.SupportsResponseFormat && !model.SupportsStructuredOutputs {
 		const instruction = "Responda exclusivamente com um objeto JSON valido com a intencao e os campos pedidos, sem cercas de codigo nem texto fora do objeto. A string reply pode conter Markdown simples, com quebras de linha escapadas como \\n."

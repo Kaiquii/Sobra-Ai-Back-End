@@ -78,6 +78,9 @@ func financialFallbackReply(tool string, result map[string]any) string {
 	}
 }
 
+var financialListMarkerPattern = regexp.MustCompile(`(?m)^[ \t]*[0-9]{1,2}[.)][ \t]+`)
+var financialInlineListPattern = regexp.MustCompile(`\([1-9]\)([ \t]+[A-Za-zÀ-ÿ])`)
+var financialThousandsPattern = regexp.MustCompile(`^[+-]?[0-9]{1,3}(\.[0-9]{3})+$`)
 var financialNumberPattern = regexp.MustCompile(`[-+]?\d+(?:[.,]\d+)*`)
 var financialMoneyPattern = regexp.MustCompile(`(?i)(?:R\$\s*([-+]?\d+(?:[.,]\d+)*)|([-+]?\d+(?:[.,]\d+)*)\s*reais)`)
 var financialExternalMinusPattern = regexp.MustCompile(`(?i)-R\$\s*(\d)`)
@@ -141,6 +144,7 @@ func financialNumbersSupported(reply string, resultJSON []byte) bool {
 			return false
 		}
 	}
+	validationReply = financialValidationText(financialInlineListPattern.ReplaceAllString(financialListMarkerPattern.ReplaceAllString(reply, ""), "$1"))
 	// Registered labels such as Uber/99 are not financial figures. Remove only
 	// complete, exact labels after checking money, rather than authorizing 99 as
 	// an arbitrary percentage or amount anywhere in the generated response.
@@ -175,6 +179,9 @@ func financialValidationText(reply string) string {
 func canonicalFinancialNumber(token string) string {
 	if strings.Contains(token, ",") {
 		token = strings.ReplaceAll(strings.ReplaceAll(token, ".", ""), ",", ".")
+	}
+	if financialThousandsPattern.MatchString(token) {
+		token = strings.ReplaceAll(token, ".", "")
 	}
 	value, err := strconv.ParseFloat(token, 64)
 	if err != nil {

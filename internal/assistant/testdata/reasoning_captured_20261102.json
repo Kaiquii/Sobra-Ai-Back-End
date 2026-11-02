@@ -1,0 +1,51 @@
+{
+  "facts": {
+    "as_of": "2026-10-31",
+    "periods": [
+      {
+        "categories_complete": true,
+        "year": 2026,
+        "months_with_records": [
+          {
+            "total_cash_expense": 1300,
+            "total_cash_balance": 700,
+            "month": 10,
+            "total_cash_income": 2000
+          }
+        ],
+        "categories": [],
+        "total_income": 2000,
+        "total_expense": 1300
+      }
+    ],
+    "years": [
+      2026
+    ]
+  },
+  "records": [
+    {
+      "id": "open_capacity",
+      "response": "{\"intent\":\"financial_analysis\",\"reply\":\"Para avaliar quanto você pode guardar sem se apertar, preciso de alguns dados: \\n- Qual é sua renda mensal atual?\\n- Quais são suas despesas fixas mensais (aluguel, contas, etc.)?\\n- Você já tem alguma meta de economia definida?\\n- Qual é o prazo que você estima para comprar o carro?\\n\\nCom essas informações, posso analisar seu fluxo de caixa e sugerir um valor realista de economia mensal, considerando seus gastos atuais e o objetivo de futuro.\"}"
+    },
+    {
+      "id": "open_priority",
+      "response": "{\"intent\":\"financial_analysis\",\"reply\":\"Para avaliar se você pode assumir uma nova prestação com sua situação atual, preciso de informações específicas que não estão nos dados registrados. Vamos analisar o que já sabemos e o que falta:\\n\\n**O que temos (outubro/2026):**\\n- Saldo mensal: R$ 700 (positivo)\\n- Renda: R$ 2.000\\n- Despesas: R$ 1.300\\n- Sobras mensais: R$ 700\\n\\n**O que preciso saber para uma análise completa:**\\n1. **Valor da nova prestação** - Quanto você pagaria por mês?\\n2. **Prazo** - Por quantos meses?\\n3. **Tipo de dívida** - Financiamento, empréstimo, cartão de crédito?\\n4. **Taxa de juros** - Se houver\\n5. **Outras dívidas existentes** - Já tem outras prestações em andamento?\\n6. **Objetivos financeiros** - Tem metas de investimento ou economia?\\n7. **Estabilidade da renda** - A renda de R$ 2.000 é fixa ou variável?\\n\\nCom essas informações posso fazer um cálculo real do impacto na sua capacidade de pagamento e dar uma análise personalizada.\",\"calculations\":[]}"
+    },
+    {
+      "id": "open_tradeoff",
+      "response": "{\"intent\":\"financial_analysis\",\"reply\":\"Para equilibrar reserva e compra planejada, preciso de dois dados: (1) o valor total que você deseja reservar, e (2) o valor da compra planejada. Com base nos fatos atuais, em outubro de 2026 você teve renda de R$2.000,00 e despesas de R$1.300,00, resultando em um saldo de R$700,00. Posso simular como distribuir esse valor entre os dois objetivos — mas preciso dos valores para fazer o cálculo.\",\"calculations\":[] }"
+    },
+    {
+      "id": "open_missing",
+      "response": "{\"intent\":\"financial_analysis\",\"reply\":\"Com base nos dados de outubro de 2026, você teve uma renda de R$2.000,00 e despesas de R$1.300,00, resultando em um saldo de R$700,00. Para planejar uma viagem, preciso de informações sobre o valor total que você deseja juntar e o prazo desejado para a viagem. Além disso, é útil saber se você tem alguma meta de economia específica ou restrições orçamentárias.\"}"
+    },
+    {
+      "id": "open_explanation",
+      "response": "{\"intent\":\"financial_analysis\",\"reply\":\"Seu total recebido em outubro de 2026 foi de R$ 2.000,00 (renda líquida). No entanto, o saldo disponível para gastar não é igual a esse valor, pois devem ser considerados:\\n\\n1. **Despesas já realizadas**: Você gastou R$ 1.300,00 no mesmo período.\\n2. **Saldo real**: O valor restante é de R$ 700,00 (2.000 - 1.300), que é o que realmente sobrou.\\n\\nAlém disso, parte do dinheiro pode estar destinada a:\\n- Contas fixas (luz, água, internet, aluguel);\\n- Dívidas ou parcelamentos;\\n- Reserva de emergência;\\n- Investimentos ou metas de longo prazo.\\n\\nPortanto, o \\\"total recebido\\\" é a entrada bruta de dinheiro, mas o \\\"dinheiro disponível\\\" é o que sobra após todas as saídas e compromissos. Se quiser planejar melhor, posso ajudar a categorizar seus gastos ou simular um orçamento.\",\"calculations\":[{\"operation\":\"subtract\",\"paths\":[\"/periods/0/months_with_records/0/total_cash_income\",\"/periods/0/months_with_records/0/total_cash_expense\"]}]}"
+    },
+    {
+      "id": "open_correction",
+      "response": "{\"intent\":\"financial_analysis\",\"reply\":\"Entendi que você quer entender sua situação financeira e as limitações de usar médias para isso. Vou analisar com base nos dados reais de outubro de 2026: você teve uma renda de R$ 2.000,00 e gastou R$ 1.300,00, deixando um saldo de R$ 700,00. A média de gastos por categoria não reflete bem flutuações mensais ou gastos pontuais. Por exemplo, um gasto alto em um mês pode distorcer a média, fazendo com que você subestime gastos futuros. Além disso, médias não capturam sazonalidade ou mudanças de comportamento. Se quiser, posso ajudar a planejar com base no saldo atual e nos gastos reais, sem assumir médias.\", \"calculations\":[]}"
+    }
+  ]
+}

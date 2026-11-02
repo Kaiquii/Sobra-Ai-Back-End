@@ -28,7 +28,7 @@ func assistantResponseSchema(categorySets ...[]string) map[string]any {
 		"category_name":  category,
 		"payment_source": source,
 		"group_by":       assistantSchemaEnum("string", "month", "category", "expense", "installment", "purchase", "clarify_installment_or_purchase"),
-		"operation":      assistantSchemaEnum("string", "list", "compare", "max", "min", "sum", "average", "review", "budget"),
+		"operation":      assistantSchemaEnum("string", "list", "compare", "max", "min", "sum", "average", "review", "budget", "savings"),
 		"limit":          limit,
 		"position":       position,
 	})
@@ -54,6 +54,7 @@ func assistantResponseSchema(categorySets ...[]string) map[string]any {
 	return assistantSchemaObject(map[string]any{
 		"action": map[string]any{"anyOf": []any{
 			assistantSchemaObject(map[string]any{"intent": assistantSchemaEnum("string", "financial_query"), "query": query}),
+			assistantSchemaObject(map[string]any{"intent": assistantSchemaEnum("string", "financial_analysis"), "reply": map[string]any{"type": "string"}, "calculations": map[string]any{"type": "array", "items": assistantSchemaObject(map[string]any{"operation": assistantSchemaEnum("string", "sum", "subtract", "average", "percentage", "min", "max"), "paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}})}}),
 			create,
 			assistantSchemaObject(map[string]any{"intent": assistantSchemaEnum("string", "general", "app_help"), "reply": map[string]any{"type": "string"}}),
 			assistantSchemaObject(map[string]any{"intent": assistantSchemaEnum("string", "monthly_summary"), "month": assistantNullableSchema(map[string]any{"type": "integer"}), "year": assistantNullableSchema(map[string]any{"type": "integer"})}),
