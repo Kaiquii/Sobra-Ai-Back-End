@@ -16,15 +16,22 @@ type assistantUsageContextKey struct{}
 
 type assistantMessageBudgetKey struct{}
 
+const assistantMessageMaxAttempts = 2
+
+type assistantMessageBudget struct {
+	started  atomic.Bool
+	attempts atomic.Int32
+}
+
 // Shared by every generation/attempt belonging to one chat HTTP request.
 // A fresh request gets a fresh budget, independently of the daily user limit.
 func withAssistantMessageBudget(ctx context.Context) context.Context {
-	return context.WithValue(ctx, assistantMessageBudgetKey{}, &atomic.Bool{})
+	return context.WithValue(ctx, assistantMessageBudgetKey{}, &assistantMessageBudget{})
 }
 
 func assistantMessageBudgetExhausted(ctx context.Context) bool {
-	budget, ok := ctx.Value(assistantMessageBudgetKey{}).(*atomic.Bool)
-	return ok && budget.Load()
+	budget, ok := ctx.Value(assistantMessageBudgetKey{}).(*assistantMessageBudget)
+	return ok && (budget.started.Load() || budget.attempts.Load() >= assistantMessageMaxAttempts)
 }
 
 type assistantUsageIdentity struct {
@@ -43,8 +50,16 @@ func withAssistantUsage(ctx context.Context, userID uint) context.Context {
 // Only completion HTTP attempts consume this allowance. Catalog queries,
 // preference changes and local expense confirmations do not call this gate.
 func reserveAssistantCall(ctx context.Context) error {
-	if budget, ok := ctx.Value(assistantMessageBudgetKey{}).(*atomic.Bool); ok && !budget.CompareAndSwap(false, true) {
-		return OpenRouterError{Code: "assistant_message_limit", StatusCode: http.StatusTooManyRequests}
+	if budget, ok := ctx.Value(assistantMessageBudgetKey{}).(*assistantMessageBudget); ok {
+		for {
+			used := budget.attempts.Load()
+			if used >= assistantMessageMaxAttempts {
+				return OpenRouterError{Code: "assistant_message_limit", StatusCode: http.StatusTooManyRequests}
+			}
+			if budget.attempts.CompareAndSwap(used, used+1) {
+				break
+			}
+		}
 	}
 	identity, ok := ctx.Value(assistantUsageContextKey{}).(assistantUsageIdentity)
 	if !ok || identity.userID == 0 {

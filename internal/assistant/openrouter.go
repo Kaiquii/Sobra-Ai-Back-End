@@ -200,6 +200,11 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 	if assistantMessageBudgetExhausted(client.ctx) {
 		return "", OpenRouterError{Code: "assistant_message_limit", StatusCode: http.StatusTooManyRequests}
 	}
+	// One generation owns this message, including its bounded fallback. A second
+	// client/stage cannot spend the remaining attempt after success or failure.
+	if budget, ok := client.ctx.Value(assistantMessageBudgetKey{}).(*assistantMessageBudget); ok && !budget.started.CompareAndSwap(false, true) {
+		return "", OpenRouterError{Code: "assistant_message_limit", StatusCode: http.StatusTooManyRequests}
+	}
 	ctx, cancel := context.WithTimeout(client.ctx, openRouterRequestBudget)
 	defer cancel()
 	if retry := routerCooldownRemaining(client.account); retry > 0 {
@@ -209,7 +214,7 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 	attempts := 0
 	maxAttempts := openRouterMaxAttempts
 	if client.ctx.Value(assistantMessageBudgetKey{}) != nil {
-		maxAttempts = 1
+		maxAttempts = assistantMessageMaxAttempts
 	}
 	models := client.models
 	if client.automatic {
@@ -265,7 +270,16 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 		}
 		openRouterAutoRouting.forget(client.account, model.ID)
 		if attempted {
-			setRouterCooldown(cooldownKey, max(typed.RetryAfterSeconds, 15))
+			pause := 60
+			if typed.StatusCode == http.StatusTooManyRequests {
+				pause = 15 * 60
+			}
+			setRouterCooldown(cooldownKey, max(typed.RetryAfterSeconds, pause))
+		}
+		// Do not buy another generated answer just to repair rejected content.
+		// The chat fallback is for unavailable providers, not semantic retries.
+		if typed.Code == "assistant_invalid_response" && client.ctx.Value(assistantMessageBudgetKey{}) != nil {
+			return "", typed
 		}
 	}
 	return "", lastError
@@ -316,7 +330,9 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 		log.Printf("OpenRouter usage prompt_tokens=%d completion_tokens=%d total_tokens=%d", result.Usage.PromptTokens, result.Usage.CompletionTokens, result.Usage.TotalTokens)
 	}
 	if response.StatusCode >= 400 {
-		return "", true, classifyRouterError(response, result)
+		failure := classifyRouterError(response, result)
+		log.Printf("OpenRouter rejected code=%s status=%d global=%t retry_after=%d", failure.Code, failure.StatusCode, failure.Global, failure.RetryAfterSeconds)
+		return "", true, failure
 	}
 	if decodeErr != nil {
 		if interrupted, ok := routerRequestInterruption(ctx, decodeErr, req.DebugStage); ok {
@@ -568,6 +584,11 @@ func classifyRouterError(response *http.Response, result openRouterResponse) Ope
 			source, _ := metadata["limit_source"].(string)
 			typeName, _ := metadata["error_type"].(string)
 			message := strings.ToLower(result.Error.Message)
+			// Provider limits can carry rate-limit headers too. Headers alone
+			// must not turn an explicitly identified provider into an account ban.
+			if provider != "" {
+				global = false
+			}
 			global = global || strings.HasPrefix(source, "openrouter") ||
 				(provider == "" && typeName == "rate_limit_exceeded") ||
 				strings.Contains(message, "per-day") || strings.Contains(message, "per day") ||

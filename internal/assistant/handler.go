@@ -419,7 +419,7 @@ func responseErrorFields(toolResult any) (string, int) {
 
 func quotaReply(retryAfter int) string {
 	if retryAfter > 0 {
-		return "A IA atingiu o limite temporario de uso. Tente novamente em " + strconv.Itoa(retryAfter) + " segundos."
+		return "A IA atingiu um limite de uso. Aguarde pelo menos " + strconv.Itoa(retryAfter) + " segundos antes de tentar novamente; a disponibilidade depende do provedor."
 	}
 	return "A IA atingiu o limite temporario de uso. Tente novamente mais tarde. Seus dados continuam disponiveis no aplicativo."
 }

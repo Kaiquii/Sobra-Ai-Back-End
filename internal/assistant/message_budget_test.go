@@ -25,7 +25,7 @@ func TestMessageBudgetIsSharedUnderConcurrentAttempts(t *testing.T) {
 		}()
 	}
 	group.Wait()
-	if successful.Load() != 1 {
+	if successful.Load() != assistantMessageMaxAttempts {
 		t.Fatalf("shared message budget allowed %d attempts", successful.Load())
 	}
 }
@@ -51,7 +51,7 @@ func TestDefaultDailyAllowanceSupportsFiftyIndependentMessages(t *testing.T) {
 	usageError(t, reserveAssistantCall(withAssistantMessageBudget(user)))
 }
 
-func TestChatMessageMakesAtMostOneCompletionIncludingFailures(t *testing.T) {
+func TestChatMessageAllowsOnlyOneBoundedGenerationWithFallback(t *testing.T) {
 	for _, scenario := range []string{"success", "invalid_json", "length", "provider_429", "server_503"} {
 		t.Run(scenario, func(t *testing.T) {
 			calls := 0
@@ -66,7 +66,7 @@ func TestChatMessageMakesAtMostOneCompletionIncludingFailures(t *testing.T) {
 					t.Error(err)
 				}
 				if payload.MaxTokens != 2048 {
-					t.Errorf("the larger output allowance must preserve one completion: max_tokens=%d", payload.MaxTokens)
+					t.Errorf("output allowance changed: max_tokens=%d", payload.MaxTokens)
 				}
 				if calls == 1 {
 					switch scenario {
@@ -93,10 +93,15 @@ func TestChatMessageMakesAtMostOneCompletionIncludingFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = generator.generateText(GeminiRequest{DebugStage: "assistant_intent"})
-			if (err == nil) != (scenario == "success") || calls != 1 {
+			wantCalls := 2
+			if scenario == "success" || scenario == "invalid_json" || scenario == "length" {
+				wantCalls = 1
+			}
+			wantSuccess := scenario != "invalid_json" && scenario != "length"
+			if (err == nil) != wantSuccess || calls != wantCalls {
 				t.Fatalf("first message: calls=%d err=%v", calls, err)
 			}
-			if _, err := generator.generateText(GeminiRequest{}); err == nil || calls != 1 {
+			if _, err := generator.generateText(GeminiRequest{}); err == nil || calls != wantCalls {
 				t.Fatalf("second generation spent another call: %d %v", calls, err)
 			}
 			// Even another client shares the budget of this same HTTP message.
@@ -104,14 +109,14 @@ func TestChatMessageMakesAtMostOneCompletionIncludingFailures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := other.generateText(GeminiRequest{}); err == nil || calls != 1 {
+			if _, err := other.generateText(GeminiRequest{}); err == nil || calls != wantCalls {
 				t.Fatal("another client bypassed message budget")
 			}
 			next, err := newAssistantGeneratorForModel(withAssistantMessageBudget(context.Background()), "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := next.generateText(GeminiRequest{DebugStage: "assistant_intent"}); err != nil || calls != 2 {
+			if _, err := next.generateText(GeminiRequest{DebugStage: "assistant_intent"}); err != nil || calls != wantCalls+1 {
 				t.Fatalf("new message did not get independent budget: %d %v", calls, err)
 			}
 		})

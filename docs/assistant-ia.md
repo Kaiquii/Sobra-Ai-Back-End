@@ -56,7 +56,7 @@ Registros anteriores: [roteamento automatico](publicacao-roteamento-automatico-i
 [catalogo completo](publicacao-catalogo-completo-ia.md) e
 [publicacao inicial](publicacao-openrouter.md).
 
-**Atualizacao publicada em 28/10/2026, as 20:29 de Sao Paulo:** uma mensagem de
+**Historico de 28/10/2026, as 20:29 de Sao Paulo (substituido pelo fallback limitado abaixo):** uma mensagem de
 chat permite no maximo uma chamada ao OpenRouter, com teto de 2048 tokens de
 saida na interpretacao quando suportado. Consultas financeiras sao formatadas
 localmente e a rotacao apos falha vale apenas para a mensagem seguinte.
@@ -112,8 +112,9 @@ O fluxo correto e:
    exatos do Go.
 
 Confirmar um cadastro preparado nao usa chamada ao modelo. Interpretar cadastro,
-conversa comum, ajuda e consulta financeira usam no maximo uma chamada.
-Falhas tambem gastam apenas essa tentativa; nao ha repeticao dentro da mensagem.
+conversa comum, ajuda e consulta financeira usam uma geracao, com uma tentativa
+normal e no maximo uma tentativa adicional em outro modelo se o provedor falhar.
+Nao ha nova completion para reescrever ou corrigir uma resposta gerada invalida.
 O orcamento de uma etapa e de
 45 segundos e o chat inteiro tem limite de 55 segundos, menor que os timeouts
 padrao do proxy e do app.
@@ -290,13 +291,13 @@ orcamento compartilhado de no maximo UMA chamada de completions. O orcamento e
 verificado na fronteira HTTP do provedor, inclusive se houver mais de um cliente
 ou etapa na mesma mensagem. Resposta invalida, truncada, timeout ou erro nao
 autorizam outra tentativa dentro desse POST. Modelos em cooldown podem ser
-descartados antes de enviar a unica chamada; uma rotacao apos falha vale somente
-para a proxima mensagem enviada pelo usuario, nunca para reenvio automatico.
+descartados antes de enviar a chamada; uma falha recuperavel pode usar o segundo
+modelo na mesma mensagem, dentro do teto total de duas tentativas.
 No modo automatico, o servidor reutiliza por ate cinco minutos o ultimo modelo
 gratuito que respondeu corretamente para a conta. Erros descartam essa prioridade;
 um modelo retirado do catalogo nao volta a ser utilizado por esse estado. Depois
 vem o recomendado e as demais alternativas elegiveis. Uma sugestao explicita de
-cliente antigo mantem prioridade sem aumentar o orcamento de uma chamada.
+cliente antigo mantem prioridade sem aumentar o orcamento de duas tentativas.
 Disponibilidade gratuita pode variar por modelo, capacidade ou politica
 de dados; o catalogo nao garante capacidade instantanea. A politica `deny` continua
 ativa; nao liberar uso para treinamento automaticamente para fazer uma opcao funcionar.
@@ -364,3 +365,36 @@ reutilizados pela criacao/confirmacao em `expense_create.go`, sem funcoes
 duplicadas. Ambos e seus testes fazem parte do harness e dos binarios. As
 alteracoes locais preexistentes do Compose e configuracoes privadas nao entram
 no commit nem no pacote de publicacao.
+
+## Fallback limitado apos falha do provedor — 03/11/2026
+
+A politica atual substitui o limite anterior de uma tentativa HTTP por mensagem:
+o fluxo normal continua com uma tentativa; se o provedor/modelo estiver indisponivel
+(429 especifico do modelo, 404, 5xx ou falha de rede sem timeout), pode tentar uma
+segunda IA do catalogo gratuito. O teto total e de **duas tentativas HTTP por
+mensagem**, compartilhado entre clientes e etapas. Uma resposta aceita encerra a
+geracao; nao existe segunda chamada para reescrever o resultado. JSON invalido,
+resposta truncada ou rejeitada semanticamente nao ganham outra completion no chat.
+
+Cada tentativa conta nos limites por usuario (padrao 6/minuto e 50/dia), inclusive
+a falha. Assim, 50 tentativas nao garantem 50 mensagens respondidas quando ha
+fallback. Permanecem o teto de 2048 tokens por tentativa, o prazo total de 45s,
+o catalogo de preco zero e a politica de privacidade. Nao ha retry ilimitado,
+chamada paralela nem consulta de quota por mensagem.
+
+Um 429 de modelo bloqueia esse modelo por pelo menos 15 minutos; outras falhas
+recuperaveis por pelo menos 60 segundos, respeitando Retry-After maior. A proxima
+tentativa pula os modelos em pausa, e o modo recomendado reutiliza por ate cinco
+minutos o substituto que respondeu. Preferencias gravadas do usuario nao mudam.
+Estado de saude e cooldown vivem na memoria da API e reiniciam com o processo.
+
+Limite global identificado da OpenRouter, falta de credito, credencial invalida,
+limite do usuario, cancelamento e timeout encerram a geracao sem tentar contornar
+o bloqueio. Cabecalhos de rate limit com provider_name explicito nao bastam para
+classificar o erro como global; sinais explicitos de limite da conta prevalecem.
+Um 429 sem causa identificada permite somente a tentativa adicional limitada.
+Logs de rejeicao incluem apenas codigo interno, status, global e retry_after;
+nao armazenam corpo de erro, credenciais nem texto do usuario.
+
+Os testes usam HTTP local simulado; nao comprovam disponibilidade ou qualidade
+semantica atual dos modelos reais. Nenhuma inferencia real faz parte do deploy.

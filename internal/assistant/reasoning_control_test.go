@@ -116,11 +116,11 @@ func TestOpenRouterReasoningControlPayloadIsInterpreterOnly(t *testing.T) {
 	}
 }
 
-func TestOpenRouterReasoningControlHTTPKeepsOneCallAndFreePrivateBudget(t *testing.T) {
+func TestOpenRouterReasoningControlHTTPKeepsBoundedFreePrivateBudget(t *testing.T) {
 	for _, scenario := range []string{"success", "invalid_json", "provider_error"} {
 		t.Run(scenario, func(t *testing.T) {
 			var calls atomic.Int32
-			payloads := make(chan map[string]any, 1)
+			payloads := make(chan map[string]any, assistantMessageMaxAttempts)
 			setupRouterTest(t, func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet {
 					optional := testCatalogEntry("test/optional:free")
@@ -139,7 +139,7 @@ func TestOpenRouterReasoningControlHTTPKeepsOneCallAndFreePrivateBudget(t *testi
 				select {
 				case payloads <- payload:
 				default:
-					t.Error("message made more than one completion request")
+					t.Error("message exceeded bounded fallback")
 				}
 				switch scenario {
 				case "invalid_json":
@@ -157,7 +157,11 @@ func TestOpenRouterReasoningControlHTTPKeepsOneCallAndFreePrivateBudget(t *testi
 				t.Fatal(err)
 			}
 			_, err = client.generateText(GeminiRequest{DebugStage: "assistant_intent", Contents: []GeminiContent{{Role: "user", Parts: []GeminiPart{{Text: "Ola"}}}}})
-			if (err == nil) != (scenario == "success") || calls.Load() != 1 {
+			wantCalls := int32(1)
+			if scenario == "provider_error" {
+				wantCalls = assistantMessageMaxAttempts
+			}
+			if (err == nil) != (scenario == "success") || calls.Load() != wantCalls {
 				t.Fatalf("reasoning changed per-message completion budget: calls=%d err=%v", calls.Load(), err)
 			}
 			var payload map[string]any
@@ -192,7 +196,7 @@ func TestOpenRouterReasoningControlHTTPKeepsOneCallAndFreePrivateBudget(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := other.generateText(GeminiRequest{DebugStage: "assistant_intent"}); err == nil || calls.Load() != 1 {
+			if _, err := other.generateText(GeminiRequest{DebugStage: "assistant_intent"}); err == nil || calls.Load() != wantCalls {
 				t.Fatalf("a second client bypassed the original message budget: calls=%d err=%v", calls.Load(), err)
 			}
 		})
