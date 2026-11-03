@@ -1,9 +1,11 @@
 # Assistente IA
 
-**Diagnostico local de 03/11/2026:** leitura HTTP interrompida por tempo podia
+**Correcao publicada em 03/11/2026, as 09:11:** leitura HTTP interrompida por tempo podia
 aparecer como resposta invalida. A correcao alinha a espera HTTP ao orcamento de
 45s e distingue timeout, cancelamento e JSON invalido, mantendo uma completion e
-2048 tokens. Ainda nao publicada: [diagnostico e limites](assistant-tempo-resposta.md).
+2048 tokens. [Diagnostico e limites](assistant-tempo-resposta.md),
+[publicacao e rollback](publicacao-timeout-ia.md). O teste real da pergunta de
+planejamento ficou para o usuario, sem inferencias no deploy.
 
 **Atualizacao em producao em 01/11/2026:** interpretacao qualificada com modelo
 real nos seis cenarios de saldo, orcamento, cadastro e continuidade do video.

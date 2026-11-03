@@ -1,10 +1,12 @@
 # Tempo de resposta do provedor
 
-Correcao local de 03/11/2026; ainda nao publicada nem avaliada com inferencia real.
+Correcao publicada em 03/11/2026 as 09:11 de Sao Paulo, sem nova inferencia real.
+O usuario testara a pergunta de planejamento depois da publicacao.
+[Evidencias e rollback](publicacao-timeout-ia.md).
 
 ## Diagnostico
 
-Uma consulta autorizada somente da versao e dos logs tecnicos da VM encontrou
+Antes da publicacao, uma consulta autorizada da versao e dos logs da VM encontrou
 `app-financeiro-api:reasoning-20261102`, digest
 `sha256:b2ffb5af6d8f54a2273720d298390a24c76f1b6c8bbbafdc5ffd6fdd35ddeae2`,
 ativa e sem reinicios. Portanto o registro anterior de checkpoint sem deploy nao
@@ -48,8 +50,9 @@ cancelamento, JSON invalido, status do provedor, privacidade e uma unica tentati
 O harness `scripts/test.ps1 -Integration` passou: formatacao, vet, build, testes
 com cobertura e integracao em PostgreSQL descartavel. Cobertura geral 48,6%;
 assistente 65,1%; integracao 43,2%. O primeiro ensaio encontrou Docker Desktop
-local desligado; apos inicia-lo, o harness completo passou. Nenhum teste foi
-movido para a VM de producao.
+local desligado; apos inicia-lo, o harness completo passou. Nenhum teste
+do harness foi movido para a VM de producao. Verificacoes isoladas de recuperacao
+e disponibilidade da publicacao estao registradas separadamente.
 Eles nao qualificam o raciocinio sobre compra de carro, dividas ou outros objetivos.
 Esse entendimento continua dependendo de avaliacao real separada e autorizada.
 Uma resposta que ultrapasse os 45s ainda falhara, com a causa adequada.
