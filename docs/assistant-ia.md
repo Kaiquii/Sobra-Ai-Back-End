@@ -1,5 +1,11 @@
 # Assistente IA
 
+**Atualizacao de 03/11/2026, 17:12 de Sao Paulo:** fallback gratuito limitado
+publicado no commit `adabbda`. Uma falha recuperavel pode tentar outro modelo na
+mesma mensagem, com no maximo duas tentativas HTTP. A politica anterior de uma
+tentativa descrita nos registros historicos abaixo foi substituida. Detalhes e
+recuperacao na secao "Fallback limitado apos falha do provedor".
+
 **Publicada em 03/11/2026, as 11:22 de Sao Paulo, com qualificacao semantica real pendente:** o modelo recomendado
 passa a `xingchen-agi/xing4.0-29b-a4b:free`, com schema nativo quando anunciado no
 catalogo. Dots permanece disponivel, com sua excecao de JSON object vinculada
@@ -398,3 +404,36 @@ nao armazenam corpo de erro, credenciais nem texto do usuario.
 
 Os testes usam HTTP local simulado; nao comprovam disponibilidade ou qualidade
 semantica atual dos modelos reais. Nenhuma inferencia real faz parte do deploy.
+
+### Validacao e publicacao
+
+O harness completo `scripts/test.ps1` passou (formatacao, vet, build e testes
+com cobertura; geral 49,9%, assistente 67,1%). As regressoes verificam fallback
+na mesma mensagem, teto de duas tentativas, pausa e reutilizacao de substituto,
+limites globais/por usuario, privacidade e impossibilidade de outro cliente ou
+etapa gastar mais chamadas da mesma mensagem.
+
+Codigo publicado: `adabbdaf2df58239263ee69b6f235634774d2f82`.
+Imagem: `app-financeiro-api:assistant-fallback-20261103`, digest
+`sha256:98f212361016fec1b7de99e50fb380c1f779b29a2bbd2e68f8258d01420f9a1b`.
+SHA256 do binario API:
+`b038ee59c2cb41aa89cd14bbb638fbb1e69a054a71792cd03f3d562d0e0022ef`.
+
+A API iniciou em 03/11/2026 as 17:12:04 de Sao Paulo e foi verificada as
+17:12:15, sem reinicios. Passaram 20 verificacoes GET HTTP/HTTPS, autenticadas e
+sem autenticacao, e auditoria de configuracao. Banco e schema 9 foram preservados,
+sem migration; backup foi restaurado em PostgreSQL isolado e ambas as imagens
+passaram nas verificacoes, preservando fingerprints financeiros. Nenhuma
+inferencia real foi feita; disponibilidade e qualidade dos modelos continuam
+dependentes do provedor, sem promessa de contornar cota global.
+
+Rollback somente da API, preservando novas escritas no banco:
+
+```sh
+sudo sh /home/ubuntu/app-financeiro/deploy-assistant-fallback-20261103/rollback.sh
+```
+
+O procedimento restaura a imagem anterior
+`app-financeiro-api:before-assistant-fallback-20261103`, digest
+`sha256:128ad69cc2440ada0013550e45a449690e0a448f60747e9bce8388b7f872bcae`,
+com a configuracao preservada no snapshot privado.
