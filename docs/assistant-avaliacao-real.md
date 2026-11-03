@@ -62,3 +62,122 @@ O video navega por respostas de 31/10 (saldo e compra) e mensagens de 01/11
 nao sao evidencia de nova execucao da ultima versao. A nova pergunta no final
 fica em Pensando quando a gravacao termina, sem resposta visivel para avaliar.
 Nao atribuir esses trechos automaticamente a uma regressao da ultima release.
+
+## Qualificacao de rapidez e uso dos fatos
+
+`TestAssistantFastEvaluation`, tambem sob a tag `assistant_eval`, usa o mesmo
+`interpreterRequestWithFacts` da API. O corpus sintetico fixo fica em
+`internal/assistant/testdata/fast_eval.json`. Cada execucao escolhe somente um
+caso e pode enviar somente um POST. Nao usar a chave em argumento ou arquivo
+versionado; ela entra privadamente no ambiente. Exige:
+
+- `ASSISTANT_FAST_EVAL_ENABLE=1`.
+- `ASSISTANT_FAST_EVAL_CASE`: um ID do corpus.
+- `ASSISTANT_FAST_EVAL_LEDGER`: caminho absoluto de um ledger existente em
+  `.artifacts`, criado uma unica vez para o orcamento autorizado.
+- `ASSISTANT_FAST_EVAL_OUTPUT`: caminho absoluto novo de um JSON em `.artifacts`.
+- `ASSISTANT_FAST_EVAL_MAX_LATENCY_MS`: limite de aprovacao de 1 a 10000ms;
+  omitir usa 10000ms. Nao altera os 45s do transporte de producao.
+- `ASSISTANT_FAST_EVAL_MODEL`: opcional; omitir usa o recomendado do servidor.
+
+Comando para um caso selecionado:
+
+```powershell
+go test -tags=assistant_eval ./internal/assistant -run '^TestAssistantFastEvaluation$' -count=1 -v -timeout=2m
+```
+
+O ledger usa bloqueio exclusivo e reserva a tentativa antes do POST. Conta erros
+do provedor no `authorized_total` escolhido explicitamente para aquela
+autorizacao, incluindo tentativas de perfis anteriores. A ferramenta aceita um
+total de um a seis e recusa uma tentativa acima do autorizado; seis e um teto
+defensivo da ferramenta, nao permissao para consumir seis chamadas. Os quatro
+casos do corpus sao independentes desse orcamento. Caso duplicado, qualificacao
+alterada, resultado pendente ou rodada interrompida bloqueiam outra inferencia.
+Falha de HTTP, latencia ou semantica marca a rodada como interrompida. Nao apagar,
+zerar ou trocar o ledger para repetir sem nova decisao do usuario; uma retomada
+autorizada deve preservar o historico e a contagem global ja consumida.
+
+Corpus, avaliador, modelo e limite de latencia entram no hash de qualificacao.
+O artefato registra tambem hashes de prompt, snapshot e request, tamanho do
+contexto, raciocinio solicitado/reportado, tokens, tentativas, resposta sintetica,
+resposta renderizada e motivo de aprovacao ou recusa. O resultado e persistido
+antes de liberar a reserva como concluida. Falha de persistencia nao vira caso
+aprovado sem evidencia revisavel.
+
+Antes de selecionar o proximo caso, revisar manualmente a resposta inteira e o
+resultado de Go. Verificar periodo, dinheiro versus VA/VR, uso dos dados ja
+fornecidos, perguntas sobre informacoes realmente ausentes, ausencia de escrita
+e resposta ao objetivo. O avaliador automatico complementa essa revisao; nem o
+validador numerico nem a meta de 10s provam adequacao semantica sozinhos. Nao
+alterar expectativas para aprovar uma resposta capturada que estava errada.
+
+Em 03/11, a primeira chamada deste protocolo com Dots recebeu HTTP 200 em 2974ms,
+uma completion, 2734 tokens de entrada, 90 de saida e zero de raciocinio reportados.
+Foi reprovada porque pediu renda ja fornecida. A rodada foi interrompida. O
+usuario autorizou retomar com as tres restantes, sem ultrapassar quatro no total
+e novamente parando na primeira falha. A segunda chamada, apos corrigir a
+distincao entre capacidade e meta, levou 3367ms, com 3280 tokens de entrada e 53
+de saida. Foi reprovada por escolher soma com filtro na categoria inexistente
+`Dividas`; a rodada parou novamente. Ambas as falhas continuam no historico.
+
+O usuario autorizou depois as duas chamadas restantes para a pergunta do carro
+e sua parafrase, parando na primeira falha. A terceira tentativa, primeira com
+`nvidia/nemotron-3.5-super-vl:free` e schema nativo, retornou HTTP 404 em 193ms,
+sem texto ou tokens. O ledger foi interrompido novamente. A tentativa conta no
+orcamento, mas nao avaliou entendimento. A causa especifica do 404 nao foi
+diagnosticada, e esse candidato nao sera publicado nesta revisao.
+
+As continuacoes preservam a contagem global de tres tentativas ja usadas; nao
+reiniciam a franquia de avaliacao. O caso equivalente de capacidade permite
+`savings` no periodo atual ou analise corretamente ancorada, com as mesmas
+exigencias de periodo, valores e dinheiro versus beneficios. Essa expectativa
+foi ajustada antes de qualquer inferencia da parafrase, com revisao independente;
+nao passou a aceitar nenhuma das duas respostas reais reprovadas.
+
+O candidato seguinte foi `xingchen-agi/xing4.0-29b-a4b:free`. O usuario autorizou
+ate seis tentativas no total, incluindo as tres ja usadas, permitindo ate tres
+chamadas com Xing. A continuacao preservou os tres ledgers anteriores
+interrompidos e carregou `used=3` para o teto global de seis. A regressao offline
+verifica esse carregamento e a recusa de uma setima tentativa. A quarta tentativa
+recebeu HTTP 429 em 1438ms, sem texto ou tokens, com erro local
+`assistant_quota_exceeded`, e interrompeu a rodada. O status nao diagnostica qual
+limite especifico foi atingido. Uma consulta posterior mostrou saldo diario
+restante, sem excluir outros limites do provedor.
+
+Apos nova autorizacao de retomada, a quinta tentativa recebeu HTTP 200 em 7315ms,
+com 3705 tokens de entrada, 58 de saida e zero de raciocinio reportados. Acertou
+`operation=savings`, mas consultou `year=2027, months=[]`, o ano do objetivo,
+em vez do mes atual de novembro de 2026 do fixture. Foi reprovada por
+`capacity_scope_mismatch`, e o ledger interrompeu com `used=5`. Nao alterar os
+criterios ou o corpus para aceitar esse plano.
+
+A nova gramatica local usa `current_savings_capacity` sem argumentos. O mesmo
+parser usado pela API e pela avaliacao converte essa tarefa em consulta `savings`
+do mes/ano confiaveis do servidor, sem filtros. Periodos financeiros explicitos
+usam `period_savings`, normalizado sem alterar os periodos; `savings` legado
+permanece aceito. Isso altera a forma de expressar a tarefa, nao os resultados
+esperados nem o verificador semantico. Ver [contrato de capacidade](assistant-poupanca.md).
+
+A sexta e ultima tentativa, apos a correcao do protocolo e a decisao de retomada,
+recebeu HTTP 429 em 1522ms, sem texto e com zero tokens reportados. O ledger
+interrompeu com `used=6`. A causa especifica do limite nao foi diagnosticada.
+O artefato e `.artifacts/fast-eval-capacity-car_exact-20261103T135858Z.json`.
+O procedimento continua um caso por vez, com revisao manual e interrupcao na
+primeira falha; nao houve repeticao automatica depois desse erro.
+
+Estado final: seis POSTs consumidos, tres textos gerados nas tentativas 1, 2 e 5,
+todos semanticamente reprovados, e tres falhas do provedor nas tentativas 3, 4
+e 6. O orcamento de seis esta encerrado. A nova gramatica foi implementada e
+revisada localmente, mas seu ultimo POST nao gerou texto para verificar
+entendimento. Nao houve qualificacao semantica real final.
+
+O harness completo final com PostgreSQL local descartavel passou; a integracao
+de `cmd/api` levou 26,234s. As regressoes offline opt-in passaram em 0,585s.
+Esses resultados nao substituem a resposta real ausente. A publicacao era
+condicionada a aprovacao da validacao real e nao foi executada; VM, main e
+producao permanecem inalteradas por esta revisao. O checkpoint e destinado a
+branch `codex/assistant-efficient-grounding-20261103`. Uma futura retomada exige
+orcamento explicito e nova revisao semantica, sem zerar o historico de tentativas.
+Uma eventual aprovacao de casos de capacidade nao qualificara automaticamente
+todo o corpus ou modelos alternativos. Cobertura offline e verificacao real
+continuam identificadas separadamente.

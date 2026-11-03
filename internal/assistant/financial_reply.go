@@ -82,7 +82,9 @@ var financialListMarkerPattern = regexp.MustCompile(`(?m)^[ \t]*[0-9]{1,2}[.)][ 
 var financialInlineListPattern = regexp.MustCompile(`\([1-9]\)([ \t]+[A-Za-zÀ-ÿ])`)
 var financialThousandsPattern = regexp.MustCompile(`^[+-]?[0-9]{1,3}(\.[0-9]{3})+$`)
 var financialNumberPattern = regexp.MustCompile(`[-+]?\d+(?:[.,]\d+)*`)
+var financialDateNumberPattern = regexp.MustCompile(`\d+`)
 var financialMoneyPattern = regexp.MustCompile(`(?i)(?:R\$\s*([-+]?\d+(?:[.,]\d+)*)|([-+]?\d+(?:[.,]\d+)*)\s*reais)`)
+var financialPercentagePattern = regexp.MustCompile(`([-+]?\d+(?:[.,]\d+)*)\s*%`)
 var financialExternalMinusPattern = regexp.MustCompile(`(?i)-R\$\s*(\d)`)
 var financialSpacedCurrencySignPattern = regexp.MustCompile(`(?i)(R\$\s*[-+])\s+(\d)`)
 
@@ -100,6 +102,7 @@ func financialNumbersSupported(reply string, resultJSON []byte) bool {
 	}
 	allowed := map[string]bool{}
 	monetary := map[string]bool{}
+	percentages := map[string]bool{}
 	labels := []string{}
 	var collect func(string, any)
 	collect = func(key string, value any) {
@@ -111,7 +114,9 @@ func financialNumbersSupported(reply string, resultJSON []byte) bool {
 			if number, err := typed.Float64(); err == nil {
 				canonical := strconv.FormatFloat(number, 'f', 2, 64)
 				allowed[canonical] = true
-				if key == "amount" || key == "monthly_total" || key == "monthly_amounts_jan_to_dec" || strings.HasPrefix(key, "total_") || strings.HasSuffix(key, "_amount") {
+				if key == "percentage" || strings.HasSuffix(key, "_percentage") {
+					percentages[canonical] = true
+				} else if key == "amount" || key == "monthly_total" || key == "monthly_amounts_jan_to_dec" || strings.HasPrefix(key, "total_") || strings.HasSuffix(key, "_amount") {
 					monetary[canonical] = true
 				}
 			}
@@ -119,9 +124,14 @@ func financialNumbersSupported(reply string, resultJSON []byte) bool {
 			if (key == "name" || key == "category" || key == "category_name" || key == "description") && strings.TrimSpace(typed) != "" {
 				labels = append(labels, financialValidationText(typed))
 			}
-			if key == "date" || key == "created_at" || key == "updated_at" {
-				for _, token := range financialNumberPattern.FindAllString(typed, -1) {
+			if key == "as_of" || key == "date" || key == "created_at" || key == "updated_at" {
+				// ISO separators are not negative signs. Calendar components may
+				// appear in explanations, never authorize money or percentages.
+				for _, token := range financialDateNumberPattern.FindAllString(typed, -1) {
 					allowed[canonicalFinancialNumber(token)] = true
+				}
+				if strings.TrimSpace(typed) != "" {
+					labels = append(labels, financialValidationText(typed))
 				}
 			}
 		case []any:
@@ -144,10 +154,15 @@ func financialNumbersSupported(reply string, resultJSON []byte) bool {
 			return false
 		}
 	}
+	for _, match := range financialPercentagePattern.FindAllStringSubmatch(validationReply, -1) {
+		if !percentages[canonicalFinancialNumber(match[1])] {
+			return false
+		}
+	}
 	validationReply = financialValidationText(financialInlineListPattern.ReplaceAllString(financialListMarkerPattern.ReplaceAllString(reply, ""), "$1"))
-	// Registered labels such as Uber/99 are not financial figures. Remove only
-	// complete, exact labels after checking money, rather than authorizing 99 as
-	// an arbitrary percentage or amount anywhere in the generated response.
+	// Registered labels and exact calendar spellings are not financial figures.
+	// Remove them only after checking money and percentages, without granting
+	// their numeric components financial authority elsewhere in the reply.
 	for _, label := range labels {
 		validationReply = strings.ReplaceAll(validationReply, label, "")
 	}

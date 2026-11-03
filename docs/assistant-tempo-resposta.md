@@ -56,3 +56,30 @@ e disponibilidade da publicacao estao registradas separadamente.
 Eles nao qualificam o raciocinio sobre compra de carro, dividas ou outros objetivos.
 Esse entendimento continua dependendo de avaliacao real separada e autorizada.
 Uma resposta que ultrapasse os 45s ainda falhara, com a causa adequada.
+
+## Eficiencia em revisao em 03/11
+
+Aumentar o timeout corrigiu a classificacao da falha de transporte, sem resolver
+por si so demora ou entendimento. A revisao seguinte reduz o snapshot enviado,
+desabilita raciocinio opcional e usa referencias para o Go preencher valores
+verificados, mantendo uma completion, 2048 tokens de saida e o mesmo prazo de
+45s. A [politica e os limites da revisao](assistant-raciocinio.md#revisao-de-eficiencia-e-uso-dos-fatos-em-0311)
+distinguem medicao de latencia de aprovacao semantica. Uma resposta rapida que
+pede dados ja fornecidos continua sendo falha; nao e aprovada apenas pelo tempo.
+As duas chamadas com Dots levaram 2974ms e 3367ms e falharam semanticamente.
+A tentativa seguinte, com Nvidia e schema nativo, recebeu HTTP 404 em 193ms,
+sem texto ou tokens; a causa especifica nao foi diagnosticada. Esse tempo mede
+uma falha do provedor, nao uma resposta util ou entendimento. Com Xing, a quarta
+tentativa recebeu HTTP 429 em 1438ms, sem texto ou tokens. A quinta recebeu HTTP
+200 em 7315ms, mas escolheu o ano da compra em vez do periodo financeiro atual.
+Essa resposta tambem foi reprovada. A sexta e ultima tentativa, ja com a nova
+gramatica de capacidade atual sem argumentos, recebeu HTTP 429 em 1522ms, sem
+texto e com zero tokens reportados. A causa especifica do limite nao foi
+diagnosticada; o tempo de erro nao mede rapidez de resposta util.
+
+O orcamento final de seis POSTs foi consumido: tres textos gerados, todos
+reprovados semanticamente, e tres falhas do provedor. Harness final com integracao
+e regressoes offline passaram, mas a nova gramatica nao recebeu resposta real
+para validar entendimento. Esta revisao nao foi publicada e nao alterou a VM;
+main e producao permanecem inalteradas. O checkpoint local nao oferece SLA nem
+garantia de inteligencia ou rapidez em perguntas nao qualificadas.

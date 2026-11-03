@@ -1,5 +1,31 @@
 # Assistente IA
 
+**Checkpoint local de 03/11/2026, sem qualificacao real final nem deploy:** o candidato recomendado
+passa a `xingchen-agi/xing4.0-29b-a4b:free`, com schema nativo quando anunciado no
+catalogo. Dots permanece disponivel, com sua excecao de JSON object vinculada
+ao ID literal desse modelo, independente de qual seja o recomendado. Contexto
+compactado, referencias financeiras verificadas e raciocinio opcional desabilitado
+mantem uma completion e o teto de 2048 tokens. As duas primeiras chamadas reais,
+com Dots, falharam semanticamente. A terceira, com Nvidia, retornou HTTP 404 em
+193ms, sem texto ou tokens, e a rodada foi interrompida. Essa falha de provedor
+nao qualificou o entendimento e sua causa especifica nao foi diagnosticada.
+Com Xing, a quarta tentativa retornou HTTP 429 em 1438ms; a quinta respondeu em
+7315ms, mas escolheu o ano da compra em vez do periodo financeiro atual. A sexta
+e ultima tentativa recebeu HTTP 429 em 1522ms, sem texto ou tokens reportados.
+Foram seis POSTs: tres respostas geradas, todas reprovadas semanticamente, e tres
+falhas do provedor. O orcamento de seis foi encerrado. A revisao local
+introduz `current_savings_capacity` sem argumentos, convertido pelo parser para
+o mes atual confiavel; periodos explicitos usam `period_savings`, preservados no
+Go, e `savings` legado continua aceito. A fonte final foi implementada e revisada;
+o harness completo com integracao e as regressoes opt-in offline passaram.
+A ultima chamada nao gerou resposta, portanto a nova gramatica continua sem
+validacao semantica real. A publicacao dependia de aprovacao dessa verificacao e
+nao foi executada. O checkpoint e destinado a branch
+`codex/assistant-efficient-grounding-20261103`; main e producao permanecem
+inalteradas por esta revisao. Nao apresentar a IA como pronta ou qualificada.
+[Politica e evidencias](assistant-raciocinio.md#revisao-de-eficiencia-e-uso-dos-fatos-em-0311),
+[avaliacao real](assistant-avaliacao-real.md).
+
 **Correcao publicada em 03/11/2026, as 09:11:** leitura HTTP interrompida por tempo podia
 aparecer como resposta invalida. A correcao alinha a espera HTTP ao orcamento de
 45s e distingue timeout, cancelamento e JSON invalido, mantendo uma completion e
@@ -9,8 +35,8 @@ planejamento ficou para o usuario, sem inferencias no deploy.
 
 **Atualizacao em producao em 01/11/2026:** interpretacao qualificada com modelo
 real nos seis cenarios de saldo, orcamento, cadastro e continuidade do video.
-O modelo recomendado usa JSON object com validacao no Go; schema nativo nao foi
-aprovado para esse modelo. [Evidencias e rollback](publicacao-qualificacao-ia.md),
+O modelo recomendado daquela publicacao, Dots, usa JSON object com validacao no Go;
+schema nativo nao foi aprovado para esse modelo. [Evidencias e rollback](publicacao-qualificacao-ia.md),
 [metodo de avaliacao](assistant-avaliacao-real.md).
 
 **Roteamento automatico do servidor:** o app deixa de escolher modelos. POST sem
@@ -229,10 +255,21 @@ consultar catalogo/preferencia nem realizar PUT de reset ao entrar.
 
 O catalogo lista automaticamente TODOS os modelos de conversa gratuitos retornados
 pelo OpenRouter, sem shortlist ou limite de quantidade. `OPENROUTER_MODELS` nao
-restringe mais a lista. Dots3-Note Preview permanece recomendado quando presente;
-os demais nomes sao ordenados para facilitar a busca. Recomendado e um atalho,
-nao um modelo adicional. Modelos novos gratuitos aparecem na proxima atualizacao
-e os que passam a cobrar deixam de ser oferecidos.
+restringe mais a lista. Na revisao local de 03/11, o preferido passa a
+`xingchen-agi/xing4.0-29b-a4b:free`, quando presente e elegivel; sua qualificacao
+esta pendente no registro acima. Os demais candidatos priorizam suporte a schema
+nativo com limite de saida; entre esses, raciocinio opcional que possa ser
+desabilitado. Depois, a ordenacao usa nome e ID. Se o preferido estiver ausente,
+o primeiro elegivel recebe a marca de recomendado. Essa prioridade nao exclui
+outras opcoes gratuitas nem obriga todos os fallbacks a terem schema nativo.
+Recomendado e um atalho, nao um modelo adicional. Modelos novos gratuitos aparecem
+na proxima atualizacao e os que passam a cobrar deixam de ser oferecidos.
+
+A excecao de JSON object de Dots e independente da politica de recomendacao.
+Outros modelos com `structured_outputs` recebem o schema nativo; modelos com
+`response_format` podem usar JSON object, e os demais continuam sujeitos ao
+protocolo JSON no prompt e a validacao de Go. Suporte de formato nao garante
+entendimento, disponibilidade ou qualidade de todos os candidatos.
 
 Os modelos devem aceitar texto e gerar texto pelo endpoint de conversa. Servicos
 de embeddings, reranking e geracao de audio/imagem nao sao opcoes de chat.

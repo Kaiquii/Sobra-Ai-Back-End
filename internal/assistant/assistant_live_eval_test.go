@@ -168,9 +168,14 @@ func TestAssistantLiveEvaluation(t *testing.T) {
 	transport := &liveEvalTransport{base: http.DefaultTransport, maxCalls: maxCalls}
 	for _, id := range selection {
 		entry := byID[id]
+		facts := corpus.Facts
 		request := buildInterpreterRequest(corpus.Now, corpus.Categories, entry.History, entry.Message, entry.Draft)
-		if corpus.Facts != nil {
-			request, err = interpreterRequestWithFacts(corpus.Now, corpus.Categories, entry.History, entry.Message, corpus.Facts, entry.Draft)
+		if facts != nil {
+			facts, err = compactAnalysisFactsForPrompt(facts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err = interpreterRequestWithFacts(corpus.Now, corpus.Categories, entry.History, entry.Message, facts, entry.Draft)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -197,15 +202,15 @@ func TestAssistantLiveEvaluation(t *testing.T) {
 					client.models[i].SupportsStructuredOutputs = false
 				}
 			}
-			client.httpClient = &http.Client{Transport: transport, Timeout: 18 * time.Second}
+			client.httpClient = &http.Client{Transport: transport, Timeout: client.httpClient.Timeout}
 			var result string
 			result, generateErr = generator.generateText(request)
 			if generateErr == nil {
-				intent, parseErr := parseFinancialIntent(cleanJSONText(result))
+				intent, parseErr := parseInterpretedFinancialIntent(result, corpus.Now)
 				if parseErr != nil {
 					record.Reason = "invalid_intent"
 				} else {
-					intent.facts = corpus.Facts
+					intent.facts = facts
 					record.Actual = liveEvalPlan(intent)
 					record.Reason = liveEvalMismatch(entry, intent, corpus.Now)
 					record.Passed = record.Reason == ""

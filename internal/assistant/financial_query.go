@@ -90,6 +90,11 @@ func parseFinancialReadQuery(raw any) (financialReadQuery, error) {
 	}
 	query.CategoryName = strings.TrimSpace(query.CategoryName)
 	query.PaymentSource = strings.TrimSpace(query.PaymentSource)
+	// This explicit-period protocol name shares the legacy cash renderer. It
+	// never changes the dates or filters that the financial plan supplied.
+	if query.Operation == periodSavingsOperation {
+		query.Operation = "savings"
+	}
 	// A monthly review of one category is the same authenticated historical
 	// guidance used for its budget reference. Accept this typed synonym instead
 	// of rejecting an otherwise complete plan. Never widen periods or filters.

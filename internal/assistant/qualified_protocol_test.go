@@ -9,11 +9,26 @@ import (
 	"time"
 )
 
-func TestQualifiedModelUsesJSONWithServerValidation(t *testing.T) {
-	model := AssistantModel{ID: preferredAssistantModelID, ContextLength: 32768, SupportsStructuredOutputs: true, SupportsResponseFormat: true}
+func TestLegacyDotsUsesJSONWithServerValidation(t *testing.T) {
+	model := AssistantModel{ID: legacyJSONAssistantModelID, ContextLength: 32768, SupportsStructuredOutputs: true, SupportsResponseFormat: true}
 	payload, err := routerPayload(model, GeminiRequest{DebugStage: "assistant_intent"})
 	if err != nil || payload.ResponseFormat["type"] != "json_object" {
 		t.Fatalf("unqualified native format enabled: %v %v", payload.ResponseFormat, err)
+	}
+}
+
+func TestRecommendedModelUsesNativeSchemaWithoutInheritingDotsException(t *testing.T) {
+	model := AssistantModel{ID: preferredAssistantModelID, ContextLength: 32768, SupportsStructuredOutputs: true, SupportsResponseFormat: true, SupportsMaxTokens: true}
+	payload, err := routerPayload(model, GeminiRequest{DebugStage: "assistant_intent", CategoryNames: []string{"Transporte", "Moradia"}})
+	if err != nil || payload.ResponseFormat["type"] != "json_schema" || payload.MaxTokens != 2048 {
+		t.Fatalf("recommended model lost its native bounded protocol: %v %v", payload, err)
+	}
+	format := responseSchemaTestJSON(t, payload.ResponseFormat)
+	schema := format["json_schema"].(map[string]any)["schema"].(map[string]any)
+	query := responseSchemaTestQuery()
+	query["category_name"] = "Dividas"
+	if responseSchemaTestValidate(schema, map[string]any{"action": map[string]any{"intent": "financial_query", "query": query}}) == nil {
+		t.Fatal("native schema authorized an invented category")
 	}
 }
 

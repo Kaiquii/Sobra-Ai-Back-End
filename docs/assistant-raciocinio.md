@@ -1,5 +1,11 @@
 # Analise com fatos antes da resposta
 
+Este documento preserva o historico da investigacao de 02/11. A politica de
+contexto e raciocinio em revisao em 03/11 esta na secao final; os resultados
+historicos nao qualificam automaticamente essa nova politica.
+
+## Base e historico de 02/11
+
 A interpretacao de pedidos abertos estava limitada a escolher uma consulta e
 receber uma resposta deterministica. financial_analysis ja existia no executor,
 mas nao no schema nativo, e seus fatos eram carregados somente depois da resposta.
@@ -116,3 +122,151 @@ revisao; producao anterior preservada. A qualificacao semantica continua pendent
 - Rodar harness e integracao finais, qualificar a resposta inteira e so entao
   preparar nova publicacao com backup e rollback. O diretorio remoto
   deploy-reasoning-20261102 contem artefatos de testes, nao uma release ativa.
+
+## Revisao de eficiencia e uso dos fatos em 03/11
+
+O snapshot bruto continua limitado a 48000 bytes. Antes da unica completion,
+uma projecao de no maximo 16000 bytes preserva os totais mensais, a separacao
+entre dinheiro e beneficios e os indices dos caminhos usados nas contas. Nao
+altera os dados originais. Mostra um prefixo de ate oito categorias por ano;
+se necessario, reduz esse prefixo para respeitar o teto e marca
+`categories_complete=false`, mantendo `represented_category_count`. Uma consulta
+exata ou exaustiva continua pelo executor `financial_query`, sem tratar esse
+prefixo como todas as categorias.
+
+`current_month` resume somente o fluxo em dinheiro do mes atual cadastrado.
+`latest_registered_month` e uma referencia datada, nunca um mes futuro nem uma
+promessa de capacidade atual. As flags `cash_income_registered` e
+`expenses_registered` distinguem ausencia de cadastro de valor zero registrado;
+receber apenas VA/VR nao significa ter renda em dinheiro registrada. Metadados
+de calendario autorizam datas, nunca operandos monetarios.
+
+O prompt distingue a capacidade de poupar do valor necessario para uma meta.
+Perguntar quanto pode separar depois das obrigacoes consulta a capacidade, mesmo
+mencionando uma compra futura. Na gramatica local final implementada,
+`current_savings_capacity` nao recebe argumentos: o parser compartilhado usa a
+data confiavel do servidor para montar `financial_query/savings` do mes atual,
+sem filtros. Periodos financeiros explicitamente pedidos usam `period_savings`,
+normalizado para `savings` sem alterar o escopo; consultas legadas `savings`
+continuam aceitas. O modelo escolhe a tarefa, sem uma lista de frases no Go.
+Detalhes: [capacidade mensal](assistant-poupanca.md).
+Perguntar quanto precisa para atingir um objetivo ou explicar
+hipoteses usa `financial_analysis`; preco e prazo ausentes podem ser pedidos,
+mas renda e despesas ja disponiveis devem ser usadas. Demonstracoes de protocolo
+ensinam essa distincao sem reconhecer uma lista fixa de frases do usuario.
+
+Nas analises, `{{fact:/current_month/total_cash_balance}}` referencia um fato
+monetario autenticado. Para uma conta, o modelo declara `calculations` com
+operacao e caminhos e escreve `{{calc:0}}` para o primeiro resultado. O Go calcula
+e formata `R$` ou `%`; nao se deve repetir simbolos no texto. Por exemplo:
+
+```json
+{
+  "intent": "financial_analysis",
+  "reply": "As despesas representam {{calc:0}} da renda em dinheiro cadastrada.",
+  "calculations": [
+    {
+      "operation": "percentage",
+      "paths": [
+        "/current_month/total_cash_expense",
+        "/current_month/total_cash_income"
+      ]
+    }
+  ]
+}
+```
+
+`fact` aceita dinheiro; percentual exige um resultado `percentage` de `calc`.
+Caminho inexistente, referencia malformada, operando sem procedencia ou divisao
+por zero sao recusados. A resposta renderizada ainda passa pelo validador
+numerico. Datas, IDs e nomes nao autorizam dinheiro ou percentuais; percentuais
+exigem procedencia percentual explicita. Respostas legadas continuam sujeitas
+ao mesmo validador, sem dispensar verificacao por nao usarem referencias.
+
+O raciocinio opcional e solicitado como desabilitado, respeitando as capacidades
+do modelo. Permanecem uma completion por mensagem, saida de ate 2048 tokens,
+orcamento de transporte/geracao de 45s, preco zero e politica de privacidade.
+Nao ha segunda chamada para reformular ou reparar uma resposta. O teto de 45s
+protege a requisicao; nao e uma meta de rapidez nem garantia de latencia.
+
+No fixture de compactacao, o JSON passou de 13893 para 8285 bytes, preservando os
+totais testados. Isso mede esse contexto ficticio, nao uma reducao universal de
+tokens, tempo ou quota. A qualidade semantica precisa de avaliacao real separada:
+procedencia numerica, status 200 e testes locais nao provam entendimento.
+
+A primeira chamada sintetica desta revisao, com Dots, levou 2974ms, com 2734
+tokens de entrada, 90 de saida e zero tokens de raciocinio reportados. Ela falhou:
+pediu a renda ja fornecida. A rodada foi interrompida, e a captura ganhou
+regressao offline para continuar reprovando esse comportamento. Apos corrigir a
+distincao entre capacidade e meta e obter autorizacao para retomar, a segunda
+chamada levou 3367ms, com 3280 tokens de entrada e 53 de saida. Tambem falhou:
+escolheu soma na categoria `Dividas`, inexistente no catalogo ficticio, em vez
+da capacidade mensal em dinheiro. A rodada foi interrompida novamente. Resposta
+rapida e numericamente bem formada nao compensam intencao ou filtro errados.
+
+A revisao seguinte tentou `nvidia/nemotron-3.5-super-vl:free`, com schema nativo.
+A terceira tentativa da investigacao retornou HTTP 404 em 193ms, sem texto ou
+tokens, e interrompeu a rodada. Ela conta como POST consumido, mas nao mede
+entendimento do modelo. A causa especifica do 404 nao foi diagnosticada; nao
+atribuir a falha a privacidade, capacidade ou formato apenas por esse status.
+Esse candidato nao sera publicado nesta revisao.
+
+O candidato preferido local passa a `xingchen-agi/xing4.0-29b-a4b:free`. Leituras
+de catalogo e endpoints indicam schema nativo, limite de saida e raciocinio
+opcional; o endpoint Phala aparece tambem na listagem de ZDR. Essas leituras
+nao qualificam a geracao nem garantem disponibilidade da completion com a
+politica de privacidade do projeto.
+
+A quarta tentativa, primeira com Xing, retornou HTTP 429 em 1438ms, sem texto
+ou tokens, e interrompeu a rodada. O erro local foi `assistant_quota_exceeded`;
+isso nao identifica sozinho a causa especifica do limite. Uma consulta posterior
+informou quatro de cinquenta requisicoes diarias usadas e quarenta e seis
+restantes. Esse saldo nao exclui limites de taxa, de endpoint ou outros controles
+do provedor, nem qualifica entendimento.
+
+Apos autorizacao de retomada, a quinta tentativa com Xing recebeu HTTP 200 em
+7315ms, com 3705 tokens de entrada e 58 de saida, total 3763, sem raciocinio
+reportado. Escolheu `savings`, mas pediu todo o ano de 2027, o ano da compra, em
+vez de novembro de 2026, periodo financeiro atual do fixture. Foi reprovada por
+`capacity_scope_mismatch`; o ledger parou com cinco tentativas consumidas. O
+avaliador e o corpus nao foram afrouxados para aceitar essa resposta.
+
+A acao sem argumentos descrita acima reduz essa ambiguidade na gramatica de
+interpretacao. O resultado anterior continua falha; testes do parser nao provam
+que o modelo real selecionara a nova acao. Depois de implementar e revisar esse
+protocolo, a sexta e ultima tentativa com Xing recebeu HTTP 429 em 1522ms, sem
+texto e com zero tokens reportados. O ledger foi interrompido com `used=6`.
+Essa ultima tentativa nao gerou resposta para avaliar semanticamente; a nova
+gramatica permanece sem qualificacao real. A causa especifica do 429 nao foi
+diagnosticada.
+
+A excecao historica de JSON object de Dots fica vinculada ao seu ID literal,
+sem acompanhar a constante de modelo preferido. Dots e as demais opcoes
+gratuitas continuam disponiveis. A prioridade das alternativas considera schema
+nativo com limite de saida e, entre essas, possibilidade de desabilitar
+raciocinio opcional. Isso nao exige schema nativo em todos os fallbacks nem
+qualifica automaticamente a qualidade semantica de cada modelo.
+
+Foram usados seis POSTs nesta investigacao. As tentativas 1, 2 e 5 geraram texto,
+e os tres textos falharam semanticamente. As tentativas 3, 4 e 6 falharam no
+provedor, sem texto. O teto global autorizado de seis foi consumido e encerrado;
+nao ha tentativa restante nesta autorizacao. Os ledgers e capturas ficam
+preservados. A ferramenta exige o total explicitamente autorizado no ledger,
+entre um e seis; seis e seu teto defensivo, nunca autorizacao por si so.
+
+O harness final `scripts/test.ps1 -Integration` passou, com formatacao, vet,
+build, cobertura e PostgreSQL local descartavel. A integracao de `cmd/api` levou
+26,234s; cobertura geral 49,8%, assistente 67,0% e integracao 43,4%. As regressoes
+offline com a tag `assistant_eval` passaram em 0,585s. O log final esta em
+`.artifacts/assistant-efficient-validation-capacity-final-20261103.log`; a ultima
+resposta do provedor esta em
+`.artifacts/fast-eval-capacity-car_exact-20261103T135858Z.json`.
+
+Esses testes verificam os comportamentos locais cobertos, sem comprovar o
+entendimento da nova gramatica pelo modelo. A publicacao dependia de a validacao real passar; nao
+foi executado deploy nem alteracao da VM nesta revisao. O checkpoint e destinado
+a branch `codex/assistant-efficient-grounding-20261103`, mantendo main e producao
+inalteradas. A pendencia e obter uma resposta real e revisar seu entendimento,
+com novo orcamento explicito antes de qualquer inferencia adicional. Nao ha
+aprovacao de qualidade universal, SLA ou prontidao para producao.
+Ver [operacao da avaliacao](assistant-avaliacao-real.md).

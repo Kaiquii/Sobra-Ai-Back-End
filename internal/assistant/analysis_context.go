@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"regexp"
 	"sort"
 	"strconv"
@@ -158,7 +159,7 @@ func loadAnalysisFacts(ctx context.Context, db *gorm.DB, userID uint, years []in
 func aggregateAnalysisYear(year int, incomeRows []incomes.Income, expenseRows []expenses.Expense, names map[uint]string, now time.Time) map[string]any {
 	months := make([]map[string]any, 12)
 	for i := range months {
-		months[i] = map[string]any{"month": i + 1, "total_income": 0.0, "total_expense": 0.0, "total_cash_income": 0.0, "total_cash_expense": 0.0, "registered": false}
+		months[i] = map[string]any{"month": i + 1, "total_income": 0.0, "total_expense": 0.0, "total_cash_income": 0.0, "total_cash_expense": 0.0, "registered": false, "cash_income_registered": false, "expenses_registered": false}
 	}
 	for _, row := range incomeRows {
 		if row.Year != year || row.Month < 1 || row.Month > 12 {
@@ -168,6 +169,7 @@ func aggregateAnalysisYear(year int, incomeRows []incomes.Income, expenseRows []
 		month["registered"] = true
 		addAnalysisMoney(month, "total_income", row.Amount)
 		if source := normalizeMoneySource(row.Source); source != "va" && source != "vr" {
+			month["cash_income_registered"] = true
 			addAnalysisMoney(month, "total_cash_income", row.Amount)
 		}
 	}
@@ -185,6 +187,7 @@ func aggregateAnalysisYear(year int, incomeRows []incomes.Income, expenseRows []
 		}
 		month := months[monthNumber-1]
 		month["registered"] = true
+		month["expenses_registered"] = true
 		addAnalysisMoney(month, "total_expense", row.Amount)
 		for _, split := range expenses.PaymentSplitsOrLegacy(*row) {
 			if source := normalizeMoneySource(split.PaymentSource); source != "va" && source != "vr" {
@@ -309,11 +312,29 @@ func analysisContextForClient(client textGenerator, userID uint, message string,
 }
 
 func analysisReply(intent financialIntent) (bool, string, string, any) {
-	calculations, err := verifiedAnalysisCalculations(intent.facts, intent.provided["calculations"])
-	validation := map[string]any{"facts": intent.facts, "verified_calculations": calculations}
-	data := []byte(analysisFactsJSON(validation))
-	if err != nil || intent.facts == nil || strings.TrimSpace(intent.Reply) == "" || !financialNumbersSupported(intent.Reply, data) {
+	reject := func(reason string) (bool, string, string, any) {
+		// Reasons are fixed locally. Never log generated text, values or paths.
+		log.Printf("Assistant analysis_not_verified reason=%s", reason)
 		return true, "Nao consegui validar a recomendacao para esse pedido. Posso consultar os registros ou preparar uma referencia de orcamento para uma categoria, sem alterar seus dados.", "financial_analysis", map[string]any{"status": "analysis_not_verified"}
 	}
-	return true, strings.TrimSpace(intent.Reply), "financial_analysis", map[string]any{"status": "read_only", "as_of": intent.facts["as_of"], "years": intent.facts["years"]}
+	if intent.facts == nil {
+		return reject("facts_missing")
+	}
+	if strings.TrimSpace(intent.Reply) == "" {
+		return reject("reply_empty")
+	}
+	calculations, err := verifiedAnalysisCalculations(intent.facts, intent.provided["calculations"])
+	if err != nil {
+		return reject("calculations_invalid")
+	}
+	reply, err := renderAnalysisReferences(intent.Reply, intent.facts, calculations)
+	if err != nil {
+		return reject("reference_invalid")
+	}
+	validation := map[string]any{"facts": intent.facts, "verified_calculations": calculations}
+	data := []byte(analysisFactsJSON(validation))
+	if !financialNumbersSupported(reply, data) {
+		return reject("numbers_unsupported")
+	}
+	return true, strings.TrimSpace(reply), "financial_analysis", map[string]any{"status": "read_only", "as_of": intent.facts["as_of"], "years": intent.facts["years"]}
 }

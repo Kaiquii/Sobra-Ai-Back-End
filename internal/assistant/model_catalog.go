@@ -18,7 +18,8 @@ const openRouterBaseURL = "https://openrouter.ai/api/v1"
 const modelCatalogTTL = 5 * time.Minute
 const modelCatalogFailureTTL = 5 * time.Second
 
-const preferredAssistantModelID = "dots-studio/dots-3-note-preview:free"
+const preferredAssistantModelID = "xingchen-agi/xing4.0-29b-a4b:free"
+const legacyJSONAssistantModelID = "dots-studio/dots-3-note-preview:free"
 
 // AssistantModel is a server-approved, currently zero-priced text model.
 type AssistantModel struct {
@@ -174,6 +175,15 @@ func fetchFreeAssistantModels(ctx context.Context) ([]AssistantModel, error) {
 		if leftPreferred != rightPreferred {
 			return leftPreferred
 		}
+		// Prefer an enforceable, bounded protocol when the primary is absent.
+		// Keep every free option available for explicit user selection.
+		leftNative, rightNative := nativeAssistantProtocol(models[i]), nativeAssistantProtocol(models[j])
+		if leftNative != rightNative {
+			return leftNative
+		}
+		if leftNative && models[i].CanDisableReasoning != models[j].CanDisableReasoning {
+			return models[i].CanDisableReasoning
+		}
 		left, right := strings.ToLower(models[i].Name), strings.ToLower(models[j].Name)
 		if left == right {
 			return models[i].ID < models[j].ID
@@ -182,6 +192,11 @@ func fetchFreeAssistantModels(ctx context.Context) ([]AssistantModel, error) {
 	})
 	models[0].Recommended = true
 	return models, nil
+}
+
+func nativeAssistantProtocol(model AssistantModel) bool {
+	return model.SupportsStructuredOutputs && model.ID != legacyJSONAssistantModelID &&
+		(model.SupportsMaxTokens || model.SupportsMaxCompletionTokens)
 }
 
 func catalogUnavailable() error {

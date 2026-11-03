@@ -12,8 +12,8 @@ import (
 // All financial validation and authorization still belong to the Go executor.
 func assistantResponseSchema(categorySets ...[]string) map[string]any {
 	period := assistantSchemaObject(map[string]any{
-		"year":   map[string]any{"type": "integer"},
-		"months": map[string]any{"type": "array", "items": assistantSchemaEnum("integer", assistantSchemaIntegers(1, 12)...), "description": "Meses solicitados; [] indica o ano inteiro."},
+		"year":   map[string]any{"type": "integer", "description": "Ano FINANCEIRO consultado, nao o ano da meta."},
+		"months": map[string]any{"type": "array", "items": assistantSchemaEnum("integer", assistantSchemaIntegers(1, 12)...), "description": "Meses financeiros pedidos; [] = ano inteiro."},
 	})
 	limit := assistantNullableSchema(assistantSchemaEnum("integer", assistantSchemaIntegers(1, 24)...))
 	limit["description"] = "Quantidade pedida; null se nao pedida. Ordinal usa 1."
@@ -24,15 +24,17 @@ func assistantResponseSchema(categorySets ...[]string) map[string]any {
 	source := assistantSchemaEnum("string", "", "Salario", "Adiantamento", "Renda Extra", "VA", "VR")
 	source["description"] = "Filtro pedido ou mantido na continuidade; '' em consulta global."
 	query := assistantSchemaObject(map[string]any{
-		"periods":        map[string]any{"type": "array", "items": period, "description": "Todos os periodos solicitados, em ate dois anos."},
+		"periods":        map[string]any{"type": "array", "items": period, "description": "Periodos financeiros pedidos, ate 2 anos; capacidade atual usa current_savings_capacity."},
 		"category_name":  category,
 		"payment_source": source,
 		"group_by":       assistantSchemaEnum("string", "month", "category", "expense", "installment", "purchase", "clarify_installment_or_purchase"),
-		"operation":      assistantSchemaEnum("string", "list", "compare", "max", "min", "sum", "average", "review", "budget", "savings"),
+		"operation":      assistantSchemaEnum("string", "list", "compare", "max", "min", "sum", "average", "review", "budget", periodSavingsOperation),
 		"limit":          limit,
 		"position":       position,
 	})
 	query["description"] = "Filtros vazios significam sem filtro."
+	capacity := assistantSchemaObject(map[string]any{"intent": assistantSchemaEnum("string", currentSavingsCapacityIntent)})
+	capacity["description"] = "Capacidade ATUAL de poupar, inclusive para compra futura. Sem argumentos: servidor escolhe mes/ano, sem datas/filtros do modelo."
 	create := assistantSchemaObject(map[string]any{
 		"intent":             assistantSchemaEnum("string", "create_expense"),
 		"description":        assistantNullableSchema(map[string]any{"type": "string"}),
@@ -53,6 +55,7 @@ func assistantResponseSchema(categorySets ...[]string) map[string]any {
 	// an object. Distinct intent enums make these closed action shapes exclusive.
 	return assistantSchemaObject(map[string]any{
 		"action": map[string]any{"anyOf": []any{
+			capacity,
 			assistantSchemaObject(map[string]any{"intent": assistantSchemaEnum("string", "financial_query"), "query": query}),
 			assistantSchemaObject(map[string]any{"intent": assistantSchemaEnum("string", "financial_analysis"), "reply": map[string]any{"type": "string"}, "calculations": map[string]any{"type": "array", "items": assistantSchemaObject(map[string]any{"operation": assistantSchemaEnum("string", "sum", "subtract", "average", "percentage", "min", "max"), "paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}})}}),
 			create,

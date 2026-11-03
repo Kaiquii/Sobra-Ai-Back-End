@@ -155,6 +155,10 @@ func interpretFinancialIntentWithHistory(client textGenerator, userID uint, mess
 	}
 	request := buildInterpreterRequest(now, categoryNames, history, message, drafts...)
 	if facts != nil {
+		facts, err = compactAnalysisFactsForPrompt(facts)
+		if err != nil {
+			return financialIntent{}, err
+		}
 		request, err = interpreterRequestWithFacts(now, categoryNames, history, message, facts, drafts...)
 	}
 	if err != nil {
@@ -166,7 +170,7 @@ func interpretFinancialIntentWithHistory(client textGenerator, userID uint, mess
 	}
 
 	text = cleanJSONText(text)
-	intent, err := parseFinancialIntent(text)
+	intent, err := parseInterpretedFinancialIntent(text, now)
 	if err != nil {
 		log.Printf("Assistant intent: resposta estruturada invalida")
 		return financialIntent{}, err
@@ -216,6 +220,12 @@ func interpreterContents(history []Message, message string) []GeminiContent {
 	contents := []GeminiContent{
 		{Role: "user", Parts: []GeminiPart{{Text: "EXEMPLO FICTICIO DE PROTOCOLO: registre livro de 23 reais, Salario, categoria Presentes, sem informar data nem tipo"}}},
 		{Role: "model", Parts: []GeminiPart{{Text: `{"action":{"intent":"create_expense","description":"livro","amount":23,"category_name":"Presentes","payment_source":"Salario","day":null,"month":null,"year":null,"type":null,"installments":null,"new_expense":null,"category_suggested":null,"provided_fields":["description","amount","category_name","payment_source"]}}`}}},
+		{Role: "user", Parts: []GeminiPart{{Text: "EXEMPLO FICTICIO DE PROTOCOLO: hoje e junho de 2031. Quero viajar no proximo ano; quanto posso separar mensalmente considerando minhas contas atuais?"}}},
+		{Role: "model", Parts: []GeminiPart{{Text: `{"action":{"intent":"current_savings_capacity"}}`}}},
+		{Role: "user", Parts: []GeminiPart{{Text: "EXEMPLO FICTICIO DE PROTOCOLO: quanto consigo separar conforme as rendas e despesas cadastradas especificamente em junho e julho de 2031? Esse e o periodo financeiro que quero consultar."}}},
+		{Role: "model", Parts: []GeminiPart{{Text: `{"action":{"intent":"financial_query","query":{"periods":[{"year":2031,"months":[6,7]}],"category_name":"","payment_source":"","group_by":"month","operation":"period_savings","limit":null,"position":null}}}`}}},
+		{Role: "user", Parts: []GeminiPart{{Text: "EXEMPLO FICTICIO DE PROTOCOLO: FATOS_ATUAIS contem current_month com renda, despesas e sobra em dinheiro cadastradas. Como organizo uma meta de longo prazo usando meu orcamento atual?"}}},
+		{Role: "model", Parts: []GeminiPart{{Text: `{"action":{"intent":"financial_analysis","reply":"Comece pelo orçamento do mês atual: renda em dinheiro de {{fact:/current_month/total_cash_income}}, despesas de {{fact:/current_month/total_cash_expense}} e sobra cadastrada de {{fact:/current_month/total_cash_balance}}. Essa é uma referência dos registros, antes de gastos ainda não cadastrados; VA/VR ficam fora desse dinheiro. Qual é o valor da meta, quanto já reservou e em que mês/ano pretende alcançá-la?","calculations":[]}}`}}},
 	}
 	return append(contents, buildConversationFromMessages(compactFinancialHistory(history), message)...)
 }
@@ -302,7 +312,7 @@ func parseFinancialIntent(text string) (financialIntent, error) {
 
 func validAssistantIntent(intent string) bool {
 	switch intent {
-	case "general", "app_help", "financial_query", "financial_analysis", "monthly_summary", "category_expenses", "list_categories", "all_category_expenses", "create_expense", "cancel_expense", "patrimony_summary", "fgts_balance", "list_investments":
+	case "general", "app_help", "financial_query", "financial_analysis", currentSavingsCapacityIntent, "monthly_summary", "category_expenses", "list_categories", "all_category_expenses", "create_expense", "cancel_expense", "patrimony_summary", "fgts_balance", "list_investments":
 		return true
 	default:
 		return false

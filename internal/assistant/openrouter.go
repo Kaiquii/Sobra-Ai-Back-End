@@ -481,7 +481,7 @@ func routerPayload(model AssistantModel, req GeminiRequest) (openRouterRequest, 
 		payload.Temperature = &temperature
 	}
 	if req.DebugStage == "assistant_intent" {
-		if model.SupportsStructuredOutputs && model.ID != preferredAssistantModelID {
+		if model.SupportsStructuredOutputs && model.ID != legacyJSONAssistantModelID {
 			payload.ResponseFormat = assistantResponseFormat(req.CategoryNames)
 		} else if model.SupportsResponseFormat {
 			// Qualification on 2026-11-01 reproduced wrong action selection with

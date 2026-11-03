@@ -194,6 +194,40 @@ func responseSchemaTestObjectsAreClosed(t *testing.T, schema map[string]any) {
 	}
 }
 
+func TestAssistantSchemaSeparatesCurrentCapacityFromExplicitFinancialPeriods(t *testing.T) {
+	schema := responseSchemaTestJSON(t, assistantResponseSchema([]string{"Transporte"}))
+	for _, test := range []struct {
+		name   string
+		action map[string]any
+		valid  bool
+	}{
+		{"argument-free current task", map[string]any{"intent": currentSavingsCapacityIntent}, true},
+		{"current task cannot accept dates", map[string]any{"intent": currentSavingsCapacityIntent, "year": 2037, "month": 1}, false},
+		{"current task cannot accept query", map[string]any{"intent": currentSavingsCapacityIntent, "query": responseSchemaTestQuery()}, false},
+		{"current task cannot carry prose", map[string]any{"intent": currentSavingsCapacityIntent, "reply": "R$ 999,00"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := responseSchemaTestValidate(schema, map[string]any{"action": test.action}) == nil; got != test.valid {
+				t.Fatalf("schema accepted=%v want=%v", got, test.valid)
+			}
+		})
+	}
+	query := responseSchemaTestQuery()
+	query["category_name"] = ""
+	query["operation"] = periodSavingsOperation
+	if err := responseSchemaTestValidate(schema, map[string]any{"action": map[string]any{"intent": "financial_query", "query": query}}); err != nil {
+		t.Fatalf("explicit financial-period protocol was rejected: %v", err)
+	}
+	query["operation"] = "savings"
+	if responseSchemaTestValidate(schema, map[string]any{"action": map[string]any{"intent": "financial_query", "query": query}}) == nil {
+		t.Fatal("native schema still asks the model to select current capacity dates")
+	}
+	// Legacy JSON remains executable; only the model-facing native enum changes.
+	if _, err := parseFinancialReadQuery(map[string]any{"periods": []any{map[string]any{"year": 2037, "months": []int{1}}}, "category_name": "", "payment_source": "", "group_by": "month", "operation": "savings"}); err != nil {
+		t.Fatal("legacy savings protocol lost compatibility")
+	}
+}
+
 func TestAssistantResponseSchemaUsesClosedRequiredObjectsAndSupportedIntents(t *testing.T) {
 	schema := responseSchemaTestJSON(t, assistantResponseSchema())
 	if schema["type"] != "object" {
@@ -211,8 +245,8 @@ func TestAssistantResponseSchemaUsesClosedRequiredObjectsAndSupportedIntents(t *
 		t.Fatalf("native envelope must contain only action: %v", properties)
 	}
 	alternatives, ok := action["anyOf"].([]any)
-	if !ok || len(alternatives) != 6 {
-		t.Fatalf("expected six nested action branches: %+v", action)
+	if !ok || len(alternatives) != 7 {
+		t.Fatalf("expected seven nested action branches: %+v", action)
 	}
 	var intents []string
 	for _, rawBranch := range alternatives {
@@ -226,7 +260,7 @@ func TestAssistantResponseSchemaUsesClosedRequiredObjectsAndSupportedIntents(t *
 			intents = append(intents, intent)
 		}
 	}
-	wantIntents := []string{"financial_analysis", "general", "app_help", "financial_query", "monthly_summary", "list_categories", "create_expense", "cancel_expense", "patrimony_summary", "fgts_balance", "list_investments"}
+	wantIntents := []string{"financial_analysis", "general", "app_help", "financial_query", currentSavingsCapacityIntent, "monthly_summary", "list_categories", "create_expense", "cancel_expense", "patrimony_summary", "fgts_balance", "list_investments"}
 	sort.Strings(intents)
 	sort.Strings(wantIntents)
 	if !reflect.DeepEqual(intents, wantIntents) {
@@ -244,7 +278,7 @@ func TestAssistantResponseSchemaUsesClosedRequiredObjectsAndSupportedIntents(t *
 	}
 	for intent, expected := range map[string][]string{
 		"financial_query": {"intent", "query"}, "general": {"intent", "reply"},
-		"monthly_summary": {"intent", "month", "year"}, "list_categories": {"intent"},
+		"monthly_summary": {"intent", "month", "year"}, "list_categories": {"intent"}, currentSavingsCapacityIntent: {"intent"},
 	} {
 		fields := responseSchemaTestActionSchema(t, schema, intent)["properties"].(map[string]any)
 		var names []string

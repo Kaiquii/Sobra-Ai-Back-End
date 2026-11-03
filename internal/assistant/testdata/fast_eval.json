@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "now": "2026-11-03T09:00:00-03:00",
+  "categories": ["Transporte", "Moradia", "Mercado", "Educação"],
+  "facts": {
+    "as_of": "2026-11-03",
+    "years": [2027, 2026],
+    "periods": [
+      {
+        "year": 2027,
+        "total_income": 0,
+        "total_expense": 0,
+        "months_with_records": [],
+        "categories": [],
+        "categories_complete": true
+      },
+      {
+        "year": 2026,
+        "total_income": 11800,
+        "total_expense": 8800,
+        "remaining_months_including_current": 2,
+        "total_registered_cash_balance_until_december": 800,
+        "categories_complete": true,
+        "months_with_records": [
+          {
+            "month": 9,
+            "total_income": 3900,
+            "total_expense": 2900,
+            "total_balance": 1000,
+            "total_cash_income": 3100,
+            "total_cash_expense": 2300,
+            "total_cash_balance": 800,
+            "cash_income_registered": true,
+            "expenses_registered": true
+          },
+          {
+            "month": 10,
+            "total_income": 3900,
+            "total_expense": 2900,
+            "total_balance": 1000,
+            "total_cash_income": 3100,
+            "total_cash_expense": 2300,
+            "total_cash_balance": 800,
+            "cash_income_registered": true,
+            "expenses_registered": true
+          },
+          {
+            "month": 11,
+            "total_income": 4000,
+            "total_expense": 3000,
+            "total_balance": 1000,
+            "total_cash_income": 3200,
+            "total_cash_expense": 2400,
+            "total_cash_balance": 800,
+            "cash_income_registered": true,
+            "expenses_registered": true
+          }
+        ],
+        "categories": [
+          {
+            "name": "Moradia",
+            "monthly_amounts_jan_to_dec": [0, 0, 0, 0, 0, 0, 0, 0, 1390, 1390, 1390, 0],
+            "total_amount": 4170,
+            "highest_month": 9,
+            "total_highest_month": 1390
+          },
+          {
+            "name": "Mercado",
+            "monthly_amounts_jan_to_dec": [0, 0, 0, 0, 0, 0, 0, 0, 1330, 1320, 1450, 0],
+            "total_amount": 4100,
+            "highest_month": 11,
+            "total_highest_month": 1450
+          },
+          {
+            "name": "Transporte",
+            "monthly_amounts_jan_to_dec": [0, 0, 0, 0, 0, 0, 0, 0, 180, 190, 160, 0],
+            "total_amount": 530,
+            "highest_month": 10,
+            "total_highest_month": 190
+          }
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "car_exact",
+      "message": "To planejando, comprar um carro ano que vem, qual valor consigo guardar por mês, de acordo com minhas dívidas?",
+      "expect": {
+        "kind": "capacity",
+        "operation": "savings",
+        "group_by": "month",
+        "year": 2026,
+        "months": [11],
+        "income": 3200,
+        "expense": 2400,
+        "balance": 800
+      }
+    },
+    {
+      "id": "car_paraphrase",
+      "message": "Quero me organizar para realizar uma compra importante no próximo ano. Considerando o que já tenho cadastrado, como avalio quanto posso separar mensalmente sem comprometer minhas obrigações?",
+      "expect": {
+        "kind": "capacity",
+        "year": 2026,
+        "months": [11],
+        "income": 3200,
+        "expense": 2400,
+        "balance": 800
+      }
+    },
+    {
+      "id": "category_budget",
+      "message": "Quanto gastei com Transporte em 2026 e que referência mensal devo adotar para essa categoria?",
+      "expect": {
+        "kind": "query",
+        "operation": "budget",
+        "group_by": "month",
+        "category": "Transporte",
+        "year": 2026,
+        "months": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        "historical_average": 185,
+        "historical_max": 190,
+        "current_amount": 160
+      }
+    },
+    {
+      "id": "purchase_partial",
+      "message": "Registra material escolar por 85 reais, Salario, categoria Educação.",
+      "expect": {
+        "kind": "expense",
+        "amount": 85,
+        "description": "material escolar",
+        "category": "Educação",
+        "payment_source": "Salario"
+      }
+    }
+  ]
+}
