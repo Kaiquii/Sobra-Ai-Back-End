@@ -391,6 +391,9 @@ func assistantErrorResponse(err error) (string, string, int) {
 		if code == "assistant_quota_exceeded" {
 			return quotaReply(retryAfter), code, retryAfter
 		}
+		if code == "assistant_request_timeout" {
+			return "A IA demorou alem do tempo de espera e a resposta nao foi concluida. Tente novamente em instantes. Nenhum lancamento foi alterado.", code, retryAfter
+		}
 		if code == "assistant_invalid_response" {
 			return "A IA nao concluiu uma resposta valida para essa pergunta. Tente novamente indicando o periodo e o que deseja comparar. Nenhum dado foi alterado.", code, retryAfter
 		}

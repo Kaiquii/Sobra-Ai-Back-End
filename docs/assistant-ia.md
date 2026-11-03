@@ -1,5 +1,10 @@
 # Assistente IA
 
+**Diagnostico local de 03/11/2026:** leitura HTTP interrompida por tempo podia
+aparecer como resposta invalida. A correcao alinha a espera HTTP ao orcamento de
+45s e distingue timeout, cancelamento e JSON invalido, mantendo uma completion e
+2048 tokens. Ainda nao publicada: [diagnostico e limites](assistant-tempo-resposta.md).
+
 **Atualizacao em producao em 01/11/2026:** interpretacao qualificada com modelo
 real nos seis cenarios de saldo, orcamento, cadastro e continuidade do video.
 O modelo recomendado usa JSON object com validacao no Go; schema nativo nao foi

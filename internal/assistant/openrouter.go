@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -164,7 +165,7 @@ func newAssistantGeneratorForModel(ctx context.Context, modelID string) (textGen
 	hash := sha256.Sum256([]byte(key))
 	return &openRouterClient{
 		ctx: ctx, apiKey: key, account: hex.EncodeToString(hash[:]), models: models,
-		httpClient: &http.Client{Timeout: 18 * time.Second}, automatic: modelID == "",
+		httpClient: &http.Client{Timeout: openRouterRequestBudget}, automatic: modelID == "",
 	}, nil
 }
 
@@ -224,7 +225,8 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 			break
 		}
 		if ctx.Err() != nil {
-			return "", OpenRouterError{Code: "assistant_request_cancelled", StatusCode: http.StatusRequestTimeout}
+			interrupted, _ := routerRequestInterruption(ctx, ctx.Err(), request.DebugStage)
+			return "", interrupted
 		}
 		if retry := routerCooldownRemaining(client.account); retry > 0 {
 			return "", OpenRouterError{Code: "assistant_quota_exceeded", StatusCode: http.StatusTooManyRequests, RetryAfterSeconds: retry, Global: true}
@@ -257,7 +259,7 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 			}
 			return "", typed
 		}
-		if typed.Code == "assistant_request_cancelled" || typed.Code == "assistant_invalid_request" ||
+		if typed.Code == "assistant_request_cancelled" || typed.Code == "assistant_request_timeout" || typed.Code == "assistant_invalid_request" ||
 			typed.Code == "assistant_user_limit" || typed.Code == "assistant_configuration_error" {
 			return "", typed
 		}
@@ -286,7 +288,8 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-OpenRouter-Title", "SobraAi")
 	if ctx.Err() != nil {
-		return "", false, OpenRouterError{Code: "assistant_request_cancelled", StatusCode: http.StatusRequestTimeout}
+		interrupted, _ := routerRequestInterruption(ctx, ctx.Err(), req.DebugStage)
+		return "", false, interrupted
 	}
 	// Another in-flight request can discover an account-wide limit after this
 	// generation started. Recheck at the actual attempt boundary so its fallback
@@ -300,8 +303,8 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 	start := time.Now()
 	response, err := client.httpClient.Do(request)
 	if err != nil {
-		if ctx.Err() != nil {
-			return "", true, OpenRouterError{Code: "assistant_request_cancelled", StatusCode: http.StatusRequestTimeout}
+		if interrupted, ok := routerRequestInterruption(ctx, err, req.DebugStage); ok {
+			return "", true, interrupted
 		}
 		return "", true, OpenRouterError{Code: "assistant_unavailable", StatusCode: http.StatusServiceUnavailable, RetryAfterSeconds: 15}
 	}
@@ -312,11 +315,17 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 	if decodeErr == nil && result.Usage != nil {
 		log.Printf("OpenRouter usage prompt_tokens=%d completion_tokens=%d total_tokens=%d", result.Usage.PromptTokens, result.Usage.CompletionTokens, result.Usage.TotalTokens)
 	}
-	if response.StatusCode >= 400 || result.Error != nil {
+	if response.StatusCode >= 400 {
 		return "", true, classifyRouterError(response, result)
 	}
 	if decodeErr != nil {
+		if interrupted, ok := routerRequestInterruption(ctx, decodeErr, req.DebugStage); ok {
+			return "", true, interrupted
+		}
 		return invalidRouterResponse(req.DebugStage, routerResponseDecodeFailed)
+	}
+	if result.Error != nil {
+		return "", true, classifyRouterError(response, result)
 	}
 	if len(result.Choices) == 0 {
 		return invalidRouterResponse(req.DebugStage, routerResponseMissingChoices)
@@ -385,6 +394,24 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 		client.usedModel = result.Model
 	}
 	return text, true, nil
+}
+
+// Client timeouts cover response-body reads as well as waiting for headers.
+// Log only a fixed interruption reason; transport errors may contain request
+// URLs, provider details or submitted content and must never be logged raw.
+func routerRequestInterruption(ctx context.Context, err error, stage string) (OpenRouterError, bool) {
+	contextError := ctx.Err()
+	if errors.Is(contextError, context.Canceled) || (contextError == nil && errors.Is(err, context.Canceled)) {
+		log.Printf("OpenRouter request_interrupted stage=%s reason=request_cancelled", safeRouterStage(stage))
+		return OpenRouterError{Code: "assistant_request_cancelled", StatusCode: http.StatusRequestTimeout}, true
+	}
+	var networkError net.Error
+	if errors.Is(contextError, context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) ||
+		(errors.As(err, &networkError) && networkError.Timeout()) {
+		log.Printf("OpenRouter request_interrupted stage=%s reason=request_timeout", safeRouterStage(stage))
+		return OpenRouterError{Code: "assistant_request_timeout", StatusCode: http.StatusGatewayTimeout, RetryAfterSeconds: 15}, true
+	}
+	return OpenRouterError{}, false
 }
 
 // An explicit question must not become an expense draft merely because the
