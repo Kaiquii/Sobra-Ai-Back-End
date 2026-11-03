@@ -492,6 +492,10 @@ func routerPayload(model AssistantModel, req GeminiRequest) (openRouterRequest, 
 			"max_price": map[string]int{"prompt": 0, "completion": 0, "request": 0},
 		},
 	}
+	if len(model.privateProviders) > 0 {
+		payload.Provider["only"] = append([]string(nil), model.privateProviders...)
+		payload.Provider["zdr"] = true
+	}
 	if model.SupportsTemperature {
 		temperature := routerTemperature(req.GenerationConfig)
 		payload.Temperature = &temperature

@@ -23,10 +23,11 @@ const legacyJSONAssistantModelID = "dots-studio/dots-3-note-preview:free"
 
 // AssistantModel is a server-approved, currently zero-priced text model.
 type AssistantModel struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Recommended bool   `json:"recommended"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	Recommended      bool   `json:"recommended"`
+	privateProviders []string
 
 	SupportsResponseFormat      bool `json:"-"`
 	SupportsStructuredOutputs   bool `json:"-"`
@@ -71,7 +72,7 @@ func listFreeAssistantModels(ctx context.Context) ([]AssistantModel, error) {
 		assistantModelCatalog.Lock()
 		now := time.Now()
 		if now.Before(assistantModelCatalog.expiresAt) && len(assistantModelCatalog.models) != 0 {
-			models := append([]AssistantModel(nil), assistantModelCatalog.models...)
+			models := copyAssistantModels(assistantModelCatalog.models)
 			assistantModelCatalog.Unlock()
 			return models, nil
 		}
@@ -138,10 +139,14 @@ func fetchFreeAssistantModels(ctx context.Context) ([]AssistantModel, error) {
 	if err := json.NewDecoder(io.LimitReader(response.Body, 12<<20)).Decode(&catalog); err != nil {
 		return nil, catalogUnavailable()
 	}
+	providers, err := fetchPrivateFreeProviders(ctx)
+	if err != nil {
+		return nil, err
+	}
 	models := make([]AssistantModel, 0)
 	seen := make(map[string]bool)
 	for _, entry := range catalog.Data {
-		if !eligibleFreeModel(entry) || seen[entry.ID] {
+		if !eligibleFreeModel(entry) || seen[entry.ID] || len(providers[entry.ID]) == 0 {
 			continue
 		}
 		seen[entry.ID] = true
@@ -155,6 +160,7 @@ func fetchFreeAssistantModels(ctx context.Context) ([]AssistantModel, error) {
 		}
 		models = append(models, AssistantModel{
 			ID: entry.ID, Name: name, Description: description,
+			privateProviders:            providers[entry.ID],
 			SupportsResponseFormat:      slices.Contains(entry.SupportedParameters, "response_format"),
 			SupportsStructuredOutputs:   slices.Contains(entry.SupportedParameters, "structured_outputs"),
 			SupportsTemperature:         slices.Contains(entry.SupportedParameters, "temperature"),

@@ -35,6 +35,10 @@ func (transport routerTestTransport) RoundTrip(request *http.Request) (*http.Res
 }
 
 func setupRouterTest(t *testing.T, handler http.HandlerFunc) {
+	setupRouterPolicyTest(t, handler, nil)
+}
+
+func setupRouterPolicyTest(t *testing.T, handler, endpoints http.HandlerFunc) {
 	t.Helper()
 	t.Setenv("OPENROUTER_API_KEY", "test-openrouter-secret")
 	assistantModelCatalog.Lock()
@@ -50,7 +54,42 @@ func setupRouterTest(t *testing.T, handler http.HandlerFunc) {
 	openRouterAutoRouting.Lock()
 	openRouterAutoRouting.accounts = nil
 	openRouterAutoRouting.Unlock()
-	server := httptest.NewServer(handler)
+	var catalogMu sync.Mutex
+	var catalogEntries []catalogModel
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/endpoints/zdr" {
+			if endpoints != nil {
+				endpoints(w, r)
+				return
+			}
+			catalogMu.Lock()
+			defer catalogMu.Unlock()
+			data := []any{}
+			for _, model := range catalogEntries {
+				data = append(data, map[string]any{"model_id": model.ID, "tag": "fixture", "status": 0, "safety_retention": false, "pricing": model.Pricing})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/models" {
+			recorder := httptest.NewRecorder()
+			handler(recorder, r)
+			var parsed struct {
+				Data []catalogModel `json:"data"`
+			}
+			_ = json.Unmarshal(recorder.Body.Bytes(), &parsed)
+			catalogMu.Lock()
+			catalogEntries = parsed.Data
+			catalogMu.Unlock()
+			for key, values := range recorder.Header() {
+				w.Header()[key] = values
+			}
+			w.WriteHeader(recorder.Code)
+			_, _ = w.Write(recorder.Body.Bytes())
+			return
+		}
+		handler(w, r)
+	}))
 	t.Cleanup(server.Close)
 	address, err := url.Parse(server.URL)
 	if err != nil {

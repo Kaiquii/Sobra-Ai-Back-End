@@ -1,5 +1,13 @@
 # Assistente IA
 
+**Filtro de provedores em validacao local (03/11/2026):** a revisao seguinte
+cruza `/models` com `/endpoints/zdr`, pelo ID exato da variante, para mostrar e
+usar apenas modelos com endpoint ativo, preco integralmente zero, politica ZDR
+e `safety_retention=false` explicito. Metadados ausentes ou indisponiveis impedem
+a selecao. O teste real recebeu HTTP 200, mas falhou no escopo semantico da
+pergunta de poupanca. O filtro foi versionado por pedido posterior do usuario;
+a publicacao permanece pendente, sem deploy desta revisao.
+
 **Atualizacao de 03/11/2026, 17:12 de Sao Paulo:** fallback gratuito limitado
 publicado no commit `adabbda`. Uma falha recuperavel pode tentar outro modelo na
 mesma mensagem, com no maximo duas tentativas HTTP. A politica anterior de uma
@@ -437,3 +445,52 @@ O procedimento restaura a imagem anterior
 `app-financeiro-api:before-assistant-fallback-20261103`, digest
 `sha256:128ad69cc2440ada0013550e45a449690e0a448f60747e9bce8388b7f872bcae`,
 com a configuracao preservada no snapshot privado.
+
+## Filtro de preco e politica por endpoint (validacao local)
+
+O catalogo geral indica capacidades e preco do modelo, mas nao prova que o
+endpoint gratuito passa na politica de dados. Ate `/models?zdr=true` pode listar
+uma variante gratuita por existir um deployment pago compativel na familia.
+O servidor cruza `/models` com a lista oficial `/endpoints/zdr`, usando IDs
+exatos, status 0, precos conhecidos e todos zero e `safety_retention=false`
+explicito. Nao basta o nome do fornecedor nem o sufixo `:free`. Routers opacos
+sem endpoint concreto elegivel tambem ficam de fora.
+
+Os dois GETs compartilham o refresh de ate 8s e o cache de 5 minutos. Nao gastam
+completions. Se qualquer metadado falhar, o cache expirado nao e reutilizado;
+o erro e reavaliado apos 5 segundos. Nao existe whitelist fixa de modelos:
+novos endpoints elegiveis entram no proximo refresh. A lista publica de modelos
+e as preferencias preservam o JSON existente; uma preferencia retirada do
+catalogo passa para a recomendacao disponivel sem alterar o valor salvo.
+
+As chamadas conservam preco maximo zero, `data_collection=deny` e
+`require_parameters=true`, acrescentando `zdr=true` e `provider.only` com os
+tags dos endpoints aprovados daquele modelo. Isso evita gastar a tentativa em
+uma variante sem provedor gratuito compativel. Capacidade, guardrails da conta
+e parametros ainda sao validados pela OpenRouter; metadados nao garantem
+disponibilidade instantanea. Se houver apenas um modelo elegivel e ele falhar,
+nao existe segunda opcao e o servidor encerra sem repetir esse modelo nem
+relaxar a politica. O teto continua em duas tentativas, nunca uma meta de gasto.
+
+Fontes oficiais: [lista de endpoints ZDR e diferenca de Safety Retention](https://openrouter.ai/docs/guides/features/zdr)
+e [preferencias de roteamento de provedores](https://openrouter.ai/docs/guides/routing/provider-selection).
+A lista ZDR pode incluir endpoints de Safety Retention; eles sao excluidos
+explicitamente aqui. ZDR nao representa promessa de sigilo absoluto: a politica
+oficial tem excecoes legais descritas pela OpenRouter.
+
+### Resultado da verificacao de 03/11/2026, 17:23 de Sao Paulo
+
+O harness completo passou: formatacao, vet, build e testes com cobertura
+(geral 50,1%; assistente 67,3%). Uma tentativa real de um maximo autorizado de
+duas usou a pergunta `car_exact` com dados sinteticos e o cliente de producao.
+O catalogo filtrado continha somente `xingchen-agi/xing4.0-29b-a4b:free`, com
+`provider.only=["phala"]`, preco zero, `data_collection=deny` e `zdr=true`.
+Nemotron e demais variantes sem endpoint gratuito ZDR verificado nao entraram.
+
+O provedor retornou HTTP 200 em 1648ms (1879ms no fluxo com catalogo),
+3775 tokens de entrada e 57 de saida. A resposta foi gerada, mas o avaliador
+semantico existente retornou `capacity_scope_mismatch`; disponibilidade nao
+equivale a entendimento correto. A validacao real nao passou. A tentativa
+restante nao foi usada e nao houve acesso a VM nem publicacao. Depois desse
+resultado, o usuario autorizou explicitamente commit e push do filtro, sem deploy.
+O release em producao continua sendo o fallback anterior, sem este filtro.
