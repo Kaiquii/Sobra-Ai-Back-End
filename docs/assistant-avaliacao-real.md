@@ -173,11 +173,20 @@ entendimento. Nao houve qualificacao semantica real final.
 
 O harness completo final com PostgreSQL local descartavel passou; a integracao
 de `cmd/api` levou 26,234s. As regressoes offline opt-in passaram em 0,585s.
-Esses resultados nao substituem a resposta real ausente. A publicacao era
-condicionada a aprovacao da validacao real e nao foi executada; VM, main e
-producao permanecem inalteradas por esta revisao. O checkpoint e destinado a
-branch `codex/assistant-efficient-grounding-20261103`. Uma futura retomada exige
-orcamento explicito e nova revisao semantica, sem zerar o historico de tentativas.
+Esses resultados nao substituem a resposta real ausente. A publicacao foi
+inicialmente retida em checkpoint na branch
+`codex/assistant-efficient-grounding-20261103`. Depois de ser informado da falha
+429 e da qualificacao pendente, o usuario deu nova autorizacao explicita para
+publicar. A fonte `402ddc2` foi integrada a main e a API foi publicada em
+03/11/2026 as 11:22:21 de Sao Paulo, conferida as 11:23:42. Vinte verificacoes
+GET HTTP/HTTPS passaram, com zero reinicios e sem nova inferencia no deploy.
+Schema 9, banco e ambiente foram preservados; a branch do checkpoint foi mantida.
+[Identificadores, recuperacao e rollback](assistant-raciocinio.md#publicacao-autorizada-em-0311).
+
+Publicacao autorizada nao e aprovacao semantica: continuam seis POSTs reprovados,
+zero avaliacoes reais aprovadas e nenhuma resposta gerada no perfil final.
+Uma futura retomada exige orcamento explicito e nova revisao semantica, sem zerar
+o historico de tentativas. Esta publicacao nao autoriza chamadas reais adicionais.
 Uma eventual aprovacao de casos de capacidade nao qualificara automaticamente
 todo o corpus ou modelos alternativos. Cobertura offline e verificacao real
 continuam identificadas separadamente.

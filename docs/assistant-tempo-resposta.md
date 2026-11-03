@@ -57,7 +57,7 @@ Eles nao qualificam o raciocinio sobre compra de carro, dividas ou outros objeti
 Esse entendimento continua dependendo de avaliacao real separada e autorizada.
 Uma resposta que ultrapasse os 45s ainda falhara, com a causa adequada.
 
-## Eficiencia em revisao em 03/11
+## Eficiencia publicada em 03/11, com qualificacao real pendente
 
 Aumentar o timeout corrigiu a classificacao da falha de transporte, sem resolver
 por si so demora ou entendimento. A revisao seguinte reduz o snapshot enviado,
@@ -80,6 +80,11 @@ diagnosticada; o tempo de erro nao mede rapidez de resposta util.
 O orcamento final de seis POSTs foi consumido: tres textos gerados, todos
 reprovados semanticamente, e tres falhas do provedor. Harness final com integracao
 e regressoes offline passaram, mas a nova gramatica nao recebeu resposta real
-para validar entendimento. Esta revisao nao foi publicada e nao alterou a VM;
-main e producao permanecem inalteradas. O checkpoint local nao oferece SLA nem
-garantia de inteligencia ou rapidez em perguntas nao qualificadas.
+para validar entendimento. Apos ser informado dessa limitacao, o usuario
+autorizou publicar. A fonte `402ddc2` foi integrada a main e ativada em
+03/11/2026 as 11:22:21 de Sao Paulo; a confericao as 11:23:42 encontrou zero
+reinicios e vinte verificacoes GET HTTP/HTTPS aprovadas, com schema 9 e
+banco/ambiente preservados. Nao houve inferencia nova no deploy. Esses tempos e
+checks sao de publicacao e disponibilidade; nao medem latencia de resposta da IA
+nem oferecem SLA ou garantia de inteligencia em perguntas nao qualificadas.
+[Evidencias da publicacao e rollback](assistant-raciocinio.md#publicacao-autorizada-em-0311).

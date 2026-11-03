@@ -4,7 +4,7 @@ O protocolo financial_query agora aceita operation=savings com group_by=month,
 sem filtros de categoria ou fonte. A consulta usa o mesmo snapshot autenticado
 e transacional das orientacoes, com limites de leitura e isolamento por usuario.
 
-## Gramatica local em revisao em 03/11
+## Gramatica publicada em 03/11, com qualificacao real pendente
 
 A interpretacao passa a distinguir a tarefa de capacidade atual de uma consulta
 com periodo financeiro explicito. Para a capacidade atual, o modelo seleciona
@@ -34,9 +34,13 @@ recusada por usar o ano do objetivo; esse resultado continua falha e nao foi
 aprovado por alterar o corpus ou o criterio de avaliacao. A sexta e ultima
 tentativa, ja com a nova gramatica, recebeu HTTP 429 em 1522ms, sem texto para
 avaliar entendimento. O teto de seis POSTs foi consumido. Portanto a qualificacao
-semantica real permanece pendente e esta revisao nao foi publicada; main e
-producao permanecem inalteradas. Testes do parser nao provam a escolha correta
-da tarefa pelo modelo real.
+semantica real permanece pendente. Depois de ser informado dessa limitacao,
+o usuario autorizou publicar: a fonte `402ddc2` foi integrada a main e ativada
+em 03/11/2026 as 11:22:21 de Sao Paulo, com schema 9 e sem novas inferencias no
+deploy. Vinte verificacoes GET HTTP/HTTPS passaram e nao houve reinicios; banco
+e ambiente foram preservados. Essa publicacao nao transforma a falha em acerto.
+Testes do parser nao provam a escolha correta da tarefa pelo modelo real.
+[Publicacao, recuperacao e rollback](assistant-raciocinio.md#publicacao-autorizada-em-0311).
 
 ## Calculo e significado do resultado
 

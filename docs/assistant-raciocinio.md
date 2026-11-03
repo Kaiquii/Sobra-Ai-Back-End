@@ -1,8 +1,8 @@
 # Analise com fatos antes da resposta
 
 Este documento preserva o historico da investigacao de 02/11. A politica de
-contexto e raciocinio em revisao em 03/11 esta na secao final; os resultados
-historicos nao qualificam automaticamente essa nova politica.
+contexto e raciocinio de 03/11 e sua publicacao estao nas secoes finais; os
+resultados historicos nao qualificam automaticamente essa nova politica.
 
 ## Base e historico de 02/11
 
@@ -263,10 +263,48 @@ resposta do provedor esta em
 `.artifacts/fast-eval-capacity-car_exact-20261103T135858Z.json`.
 
 Esses testes verificam os comportamentos locais cobertos, sem comprovar o
-entendimento da nova gramatica pelo modelo. A publicacao dependia de a validacao real passar; nao
-foi executado deploy nem alteracao da VM nesta revisao. O checkpoint e destinado
-a branch `codex/assistant-efficient-grounding-20261103`, mantendo main e producao
-inalteradas. A pendencia e obter uma resposta real e revisar seu entendimento,
+entendimento da nova gramatica pelo modelo. O trabalho foi inicialmente retido
+em checkpoint na branch `codex/assistant-efficient-grounding-20261103`, pois a
+verificacao real nao passou. Depois de ser informado da falha 429 e dessa
+pendencia, o usuario autorizou explicitamente publicar mesmo assim. Essa nova
+decisao substitui a retencao operacional; nao muda nenhum resultado de teste.
+A pendencia continua sendo obter uma resposta real e revisar seu entendimento,
 com novo orcamento explicito antes de qualquer inferencia adicional. Nao ha
-aprovacao de qualidade universal, SLA ou prontidao para producao.
+aprovacao de qualidade universal nem SLA.
 Ver [operacao da avaliacao](assistant-avaliacao-real.md).
+
+## Publicacao autorizada em 03/11
+
+A API iniciou em 03/11/2026 as 11:22:21 de Sao Paulo e foi conferida as 11:23:42.
+A fonte foi integrada a main; a branch do checkpoint foi preservada. A publicacao
+e a auditoria passaram com vinte verificacoes GET HTTP/HTTPS e zero reinicios.
+Nao houve POST de inferencia durante preparacao, ativacao ou verificacao.
+
+| Identificador | Valor |
+| --- | --- |
+| Fonte da API | `402ddc2904f7fee7165305524bf2b6bb981dc79f` |
+| Imagem ativa | `app-financeiro-api:assistant-efficient-20261103` |
+| Digest da imagem | `sha256:128ad69cc2440ada0013550e45a449690e0a448f60747e9bce8388b7f872bcae` |
+| SHA-256 do binario | `a16607409b8b76da375b1db02220ebe5683284f9e61bc1faac727b2c62b06829` |
+| SHA-256 do pacote enviado | `f664569e80f3959b6029011477fd2f6f34cd9507c5e4f3e3bdd2a84864ea9d88` |
+| Schema | `9`, sem `migrate up` ou alteracao de schema |
+
+Container do banco, configuracoes, ambiente, rede e volumes foram preservados.
+O backup foi restaurado em clone isolado e verificado com ambas as imagens;
+os fingerprints financeiros permaneceram iguais. Essa verificacao de recuperacao
+e disponibilidade nao executou uma conversa real nem qualificou o modelo.
+
+O rollback da API usa o snapshot privado e a imagem anterior, sem restaurar o
+backup sobre novas escritas de producao. Procedimento preparado na VM:
+
+```sh
+sudo sh /home/ubuntu/app-financeiro/deploy-assistant-efficient-20261103/rollback.sh
+```
+
+Os metadados sanitizados estao em
+`.artifacts/assistant-efficient-publication-20261103.json`. A decisao de publicar
+com a limitacao conhecida tem SHA-256
+`17b09c964049e8dd19e1f342db570eb59169d2057b7736c8e522eafc49a9e2ae`.
+O registro mantem `passed_real_evaluations=0`, `real_validation_pending=true`,
+seis POSTs historicos e zero inferencias no deploy. A autorizacao de publicacao
+nao reabre o orcamento de inferencias nem transforma as seis falhas em aprovacao.

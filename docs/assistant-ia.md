@@ -1,6 +1,6 @@
 # Assistente IA
 
-**Checkpoint local de 03/11/2026, sem qualificacao real final nem deploy:** o candidato recomendado
+**Publicada em 03/11/2026, as 11:22 de Sao Paulo, com qualificacao semantica real pendente:** o modelo recomendado
 passa a `xingchen-agi/xing4.0-29b-a4b:free`, com schema nativo quando anunciado no
 catalogo. Dots permanece disponivel, com sua excecao de JSON object vinculada
 ao ID literal desse modelo, independente de qual seja o recomendado. Contexto
@@ -13,18 +13,22 @@ Com Xing, a quarta tentativa retornou HTTP 429 em 1438ms; a quinta respondeu em
 7315ms, mas escolheu o ano da compra em vez do periodo financeiro atual. A sexta
 e ultima tentativa recebeu HTTP 429 em 1522ms, sem texto ou tokens reportados.
 Foram seis POSTs: tres respostas geradas, todas reprovadas semanticamente, e tres
-falhas do provedor. O orcamento de seis foi encerrado. A revisao local
+falhas do provedor. O orcamento de seis foi encerrado. A revisao publicada
 introduz `current_savings_capacity` sem argumentos, convertido pelo parser para
 o mes atual confiavel; periodos explicitos usam `period_savings`, preservados no
 Go, e `savings` legado continua aceito. A fonte final foi implementada e revisada;
 o harness completo com integracao e as regressoes opt-in offline passaram.
 A ultima chamada nao gerou resposta, portanto a nova gramatica continua sem
-validacao semantica real. A publicacao dependia de aprovacao dessa verificacao e
-nao foi executada. O checkpoint e destinado a branch
-`codex/assistant-efficient-grounding-20261103`; main e producao permanecem
-inalteradas por esta revisao. Nao apresentar a IA como pronta ou qualificada.
+validacao semantica real. Apos ser informado dessa limitacao, o usuario deu nova
+autorizacao explicita para publicar. A API da fonte `402ddc2`, integrada a main,
+foi publicada na imagem `app-financeiro-api:assistant-efficient-20261103` e
+conferida as 11:23:42: vinte verificacoes GET HTTP/HTTPS passaram, sem reinicios,
+com schema 9 e banco/ambiente preservados. Nao houve inferencia nova no deploy.
+A branch do checkpoint foi mantida. Essa autorizacao e a disponibilidade da API
+nao aprovam o entendimento do modelo nem oferecem SLA.
 [Politica e evidencias](assistant-raciocinio.md#revisao-de-eficiencia-e-uso-dos-fatos-em-0311),
-[avaliacao real](assistant-avaliacao-real.md).
+[avaliacao real](assistant-avaliacao-real.md),
+[publicacao e rollback](assistant-raciocinio.md#publicacao-autorizada-em-0311).
 
 **Correcao publicada em 03/11/2026, as 09:11:** leitura HTTP interrompida por tempo podia
 aparecer como resposta invalida. A correcao alinha a espera HTTP ao orcamento de
@@ -255,7 +259,7 @@ consultar catalogo/preferencia nem realizar PUT de reset ao entrar.
 
 O catalogo lista automaticamente TODOS os modelos de conversa gratuitos retornados
 pelo OpenRouter, sem shortlist ou limite de quantidade. `OPENROUTER_MODELS` nao
-restringe mais a lista. Na revisao local de 03/11, o preferido passa a
+restringe mais a lista. Na publicacao de 03/11, o preferido passa a
 `xingchen-agi/xing4.0-29b-a4b:free`, quando presente e elegivel; sua qualificacao
 esta pendente no registro acima. Os demais candidatos priorizam suporte a schema
 nativo com limite de saida; entre esses, raciocinio opcional que possa ser
