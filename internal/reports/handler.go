@@ -5,6 +5,7 @@ import (
 	"Sobra_Ai_Back-end/internal/database"
 	"Sobra_Ai_Back-end/internal/expenses"
 	"Sobra_Ai_Back-end/internal/incomes"
+	"Sobra_Ai_Back-end/internal/users"
 	"fmt"
 	"math"
 	"net/http"
@@ -73,6 +74,12 @@ func getMonthlySummary(c *gin.Context) {
 		return
 	}
 
+	preferences, err := users.LoadBalancePreferences(c.Request.Context(), database.DB, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar preferencias de saldo"})
+		return
+	}
+
 	var incomesList []incomes.Income
 	if err := database.DB.Where("user_id = ? AND month = ? AND year = ?", userID, month, year).Find(&incomesList).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao buscar rendas"})
@@ -137,30 +144,48 @@ func getMonthlySummary(c *gin.Context) {
 	restanteAdiantamento := totalAdiantamento - totalSpentAdiantamento
 	restanteRendaExtra := totalRendaExtra - totalSpentRendaExtra
 
-	totalGeralDisponivel := totalIncome - totalExpense
+	totalGeralDisponivel := balanceWithBenefitPreferences(totalIncome-totalExpense, totalVA-spentVA, totalVR-spentVR,
+		preferences.ExcludeVAFromAvailable, preferences.ExcludeVRFromAvailable)
 
 	c.JSON(http.StatusOK, gin.H{
-		"month":                    month,
-		"year":                     year,
-		"total_income":             totalIncome,
-		"total_expense":            totalExpense,
-		"total_geral_disponivel":   totalGeralDisponivel,
-		"salario":                  totalSalary,
-		"adiantamento":             totalAdiantamento,
-		"renda_extra_amt":          totalRendaExtra,
-		"total_gasto_salario":      totalSpentSalary,
-		"total_gasto_adiantamento": totalSpentAdiantamento,
-		"total_gasto_renda_extra":  totalSpentRendaExtra,
-		"restante_salario":         restanteSalario,
-		"restante_adiantamento":    restanteAdiantamento,
-		"restante_renda_extra":     restanteRendaExtra,
-		"va":                       totalVA,
-		"vr":                       totalVR,
-		"total_gasto_va":           spentVA,
-		"total_gasto_vr":           spentVR,
-		"restante_va":              totalVA - spentVA,
-		"restante_vr":              totalVR - spentVR,
+		"month":                     month,
+		"year":                      year,
+		"total_income":              totalIncome,
+		"total_expense":             totalExpense,
+		"total_geral_disponivel":    totalGeralDisponivel,
+		"exclude_va_from_available": preferences.ExcludeVAFromAvailable,
+		"exclude_vr_from_available": preferences.ExcludeVRFromAvailable,
+		"salario":                   totalSalary,
+		"adiantamento":              totalAdiantamento,
+		"renda_extra_amt":           totalRendaExtra,
+		"total_gasto_salario":       totalSpentSalary,
+		"total_gasto_adiantamento":  totalSpentAdiantamento,
+		"total_gasto_renda_extra":   totalSpentRendaExtra,
+		"restante_salario":          restanteSalario,
+		"restante_adiantamento":     restanteAdiantamento,
+		"restante_renda_extra":      restanteRendaExtra,
+		"va":                        totalVA,
+		"vr":                        totalVR,
+		"total_gasto_va":            spentVA,
+		"total_gasto_vr":            spentVR,
+		"restante_va":               totalVA - spentVA,
+		"restante_vr":               totalVR - spentVR,
 	})
+}
+
+// Only the available total changes. Removing each benefit's net balance keeps
+// its expenses from also reducing the money left in the other payment sources.
+func balanceWithBenefitPreferences(inclusive, remainingVA, remainingVR float64, excludeVA, excludeVR bool) float64 {
+	if excludeVA {
+		inclusive -= remainingVA
+	}
+	if excludeVR {
+		inclusive -= remainingVR
+	}
+	if excludeVA || excludeVR {
+		return roundMoney(inclusive)
+	}
+	return inclusive
 }
 
 func getCategorySummary(c *gin.Context) {

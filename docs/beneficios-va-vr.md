@@ -3,8 +3,10 @@
 VA (vale-alimentação) e VR (vale-refeição) são fontes independentes, com a mesma
 regra mensal de Salário e Adiantamento. Não há transferência de saldo entre meses.
 O saldo pode ficar negativo, como nas fontes existentes; não se bloqueia uma despesa
-por falta de crédito registrado. Valores de VA/VR participam dos totais gerais,
-exatamente como as demais rendas, e também são discriminados por fonte.
+por falta de crédito registrado. Valores de VA/VR participam dos totais gerais
+por padrão e também são discriminados por fonte. Duas preferências individuais,
+desativadas por padrão, permitem excluir o restante de VA e/ou VR somente do
+disponível geral mensal: [contrato e exemplos](preferencias-saldo-va-vr.md).
 
 ## Rendas
 
@@ -70,14 +72,20 @@ acrescenta números (zero se não houver registros):
 ```
 
 Cada restante é o crédito do mês menos as despesas daquela fonte no período efetivo.
-`total_income`, `total_expense` e `total_geral_disponivel` incluem VA e VR.
+`total_income` e `total_expense` sempre incluem VA e VR. Por padrão,
+`total_geral_disponivel` também inclui ambos; as preferências
+`exclude_va_from_available` e `exclude_vr_from_available` alteram somente esse
+último campo e são retornadas no resumo. Cada exclusão retira o restante da
+fonte, incluindo seu sinal, sem descontar novamente as despesas do benefício.
 Comparativos, gráficos e totais anuais incluem os benefícios; exportações CSV/XLSX
 discriminam crédito, gasto e restante de cada fonte. O assistente IA reconhece VA/VR
 nas consultas, resumos, filtros e cadastro com confirmação.
 
-## Banco, validação e publicação
+## Banco, validação e publicação original
 
 Não há mudança de schema nem migration nova: fontes são colunas TEXT existentes.
+Esta descrição refere-se à inclusão original de VA/VR. As preferências opcionais
+de disponível usam a migration 10, em tabela separada, documentada no contrato.
 Não se alteram registros antigos. Clientes antigos continuam usando os contratos
 legados; devem tolerar fontes adicionais quando forem cadastradas por outro cliente.
 

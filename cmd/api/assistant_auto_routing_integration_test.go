@@ -48,6 +48,12 @@ func (transport *automaticRoutingTransport) RoundTrip(request *http.Request) (*h
 		if err != nil {
 			return nil, err
 		}
+	} else if request.Method == http.MethodGet && request.URL.Path == "/api/v1/endpoints/zdr" {
+		var err error
+		body, err = integrationZDREndpointsJSON()
+		if err != nil {
+			return nil, err
+		}
 	} else if request.Method == http.MethodPost && request.URL.Path == "/api/v1/chat/completions" {
 		var payload struct{ Model string }
 		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
@@ -163,7 +169,7 @@ func TestIntegrationAssistantAutomaticRouting(t *testing.T) {
 		}
 	}
 
-	t.Run("rotates_only_on_next_message_without_duplicate_writes", func(t *testing.T) {
+	t.Run("rotates_within_same_message_without_duplicate_writes", func(t *testing.T) {
 		t.Setenv("OPENROUTER_API_KEY", "automatic-routing-preference-only")
 		transport.setResponses(
 			automaticRoutingReply(`{"intent":"general","reply":"Automatico em operacao."}`),
@@ -187,11 +193,7 @@ func TestIntegrationAssistantAutomaticRouting(t *testing.T) {
 		if len(models) != 3 || models[0] != "mock/api:free" || models[1] != "mock/settings-b:free" || models[2] != "mock/api:free" {
 			t.Fatalf("absent/empty selection used stored preference or legacy override failed: %v", models)
 		}
-		failed := request(t, "POST", "/api/assistant/chat", map[string]any{"conversation_id": conversation, "message": "cadastra sessenta reais de Mercado automatico, unica, salario, dois de outubro de 2031"})
-		if failed["error_code"] != "assistant_quota_exceeded" || len(transport.attemptedModels()) != 4 {
-			t.Fatalf("failed message must spend only one call: %+v", failed)
-		}
-		proposal := request(t, "POST", "/api/assistant/chat", map[string]any{"conversation_id": conversation, "message": "tenta cadastrar de novo"})
+		proposal := request(t, "POST", "/api/assistant/chat", map[string]any{"conversation_id": conversation, "message": "cadastra sessenta reais de Mercado automatico, unica, salario, dois de outubro de 2031"})
 		if proposal["conversation_id"] != conversation || proposal["tool_call"] != "create_expense" || proposal["tool_result"].(map[string]any)["status"] != "needs_confirmation" {
 			t.Fatalf("fallback did not finish the same proposal: %+v", proposal)
 		}
@@ -220,7 +222,7 @@ func TestIntegrationAssistantAutomaticRouting(t *testing.T) {
 			t.Fatalf("confirmation duplicated purchase: %d %v", count, err)
 		}
 		for _, role := range []string{"user", "assistant"} {
-			if err := db.Model(&assistant.Message{}).Where("conversation_id = ? AND user_id = ? AND role = ?", conversation, owner.ID, role).Count(&count).Error; err != nil || count != 6 {
+			if err := db.Model(&assistant.Message{}).Where("conversation_id = ? AND user_id = ? AND role = ?", conversation, owner.ID, role).Count(&count).Error; err != nil || count != 5 {
 				t.Fatalf("fallback duplicated conversation messages for %s: %d %v", role, count, err)
 			}
 		}

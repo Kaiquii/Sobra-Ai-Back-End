@@ -51,6 +51,13 @@ func (transport *integrationLLMTransport) RoundTrip(req *http.Request) (*http.Re
 		}
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(body))), Request: req}, nil
 	}
+	if req.Method == http.MethodGet && req.URL.Path == "/api/v1/endpoints/zdr" {
+		body, err := integrationZDREndpointsJSON()
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(body))), Request: req}, nil
+	}
 	if req.Method != http.MethodPost || req.URL.Path != "/api/v1/chat/completions" {
 		return nil, fmt.Errorf("unexpected provider endpoint")
 	}
@@ -95,6 +102,33 @@ func integrationModelCatalogJSON() ([]byte, error) {
 			"architecture":         map[string]any{"input_modalities": []string{"text"}, "output_modalities": output},
 			"pricing":              map[string]string{"prompt": "0", "completion": "0", "request": price},
 			"supported_parameters": parameters,
+		})
+	}
+	return json.Marshal(map[string]any{"data": rows})
+}
+
+// Keep strict privacy discovery entirely synthetic as well. Exact model IDs
+// and endpoint prices mirror the shared catalog, so production filtering still
+// rejects the paid/non-chat fixtures rather than tests disabling the policy.
+func integrationZDREndpointsJSON() ([]byte, error) {
+	encoded, err := integrationModelCatalogJSON()
+	if err != nil {
+		return nil, err
+	}
+	var catalog struct {
+		Data []struct {
+			ID      string            `json:"id"`
+			Pricing map[string]string `json:"pricing"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(encoded, &catalog); err != nil {
+		return nil, err
+	}
+	rows := make([]any, 0, len(catalog.Data))
+	for _, model := range catalog.Data {
+		rows = append(rows, map[string]any{
+			"model_id": model.ID, "tag": "fixture-private", "status": 0,
+			"safety_retention": false, "pricing": model.Pricing,
 		})
 	}
 	return json.Marshal(map[string]any{"data": rows})

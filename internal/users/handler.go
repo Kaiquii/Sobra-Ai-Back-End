@@ -29,6 +29,8 @@ func RegisterRoutes(rg *gin.RouterGroup) {
 		usersGroup.PATCH("/profile", updateProfile)
 		usersGroup.PATCH("/profile/photo", updateProfilePhoto)
 		usersGroup.DELETE("/profile/photo", deleteProfilePhoto)
+		usersGroup.GET("/balance-preferences", getBalancePreferences)
+		usersGroup.PATCH("/balance-preferences", updateBalancePreferences)
 	}
 }
 

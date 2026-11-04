@@ -61,6 +61,12 @@ func (transport *semanticsTransport) RoundTrip(request *http.Request) (*http.Res
 		if err != nil {
 			return nil, err
 		}
+	case request.Method == http.MethodGet && request.URL.Path == "/api/v1/endpoints/zdr":
+		var err error
+		body, err = integrationZDREndpointsJSON()
+		if err != nil {
+			return nil, err
+		}
 	case request.Method == http.MethodPost && request.URL.Path == "/api/v1/chat/completions":
 		var payload semanticsCompletionRequest
 		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {

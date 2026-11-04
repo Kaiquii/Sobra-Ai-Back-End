@@ -24,10 +24,13 @@ func (transport modelCatalogIntegrationTransport) RoundTrip(req *http.Request) (
 	if req.URL.Hostname() == "127.0.0.1" {
 		return transport.base.RoundTrip(req)
 	}
-	if req.URL.Hostname() != "openrouter.ai" || req.Method != http.MethodGet || req.URL.Path != "/api/v1/models" {
+	if req.URL.Hostname() != "openrouter.ai" || req.Method != http.MethodGet || (req.URL.Path != "/api/v1/models" && req.URL.Path != "/api/v1/endpoints/zdr") {
 		return nil, fmt.Errorf("external network forbidden in model settings integration")
 	}
 	body, err := integrationModelCatalogJSON()
+	if req.URL.Path == "/api/v1/endpoints/zdr" {
+		body, err = integrationZDREndpointsJSON()
+	}
 	if err != nil {
 		return nil, err
 	}
