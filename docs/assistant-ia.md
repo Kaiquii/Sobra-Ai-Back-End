@@ -1,12 +1,15 @@
 # Assistente IA
 
-**Filtro de provedores em validacao local (03/11/2026):** a revisao seguinte
+**Filtro de provedores observado em producao em 04/11/2026:** a revisao
 cruza `/models` com `/endpoints/zdr`, pelo ID exato da variante, para mostrar e
 usar apenas modelos com endpoint ativo, preco integralmente zero, politica ZDR
 e `safety_retention=false` explicito. Metadados ausentes ou indisponiveis impedem
 a selecao. O teste real recebeu HTTP 200, mas falhou no escopo semantico da
-pergunta de poupanca. O filtro foi versionado por pedido posterior do usuario;
-a publicacao permanece pendente, sem deploy desta revisao.
+pergunta de poupanca. O filtro foi versionado por pedido posterior do usuario.
+Na consulta autorizada da VM em 04/11 foi encontrada a imagem `privacy-0c34247`,
+ativa desde 03/11 as 19:31:52 de Sao Paulo; a publicacao ocorreu fora do fluxo
+anterior documentado neste chat. O nome da imagem sozinho nao comprova o commit.
+O entendimento semantico da pergunta de poupanca continua sem qualificacao real.
 
 **Atualizacao de 03/11/2026, 17:12 de Sao Paulo:** fallback gratuito limitado
 publicado no commit `adabbda`. Uma falha recuperavel pode tentar outro modelo na
@@ -396,7 +399,7 @@ fallback. Permanecem o teto de 2048 tokens por tentativa, o prazo total de 45s,
 o catalogo de preco zero e a politica de privacidade. Nao ha retry ilimitado,
 chamada paralela nem consulta de quota por mensagem.
 
-Um 429 de modelo bloqueia esse modelo por pelo menos 15 minutos; outras falhas
+Um 429 de modelo com alternativas bloqueia esse modelo por pelo menos 15 minutos; outras falhas
 recuperaveis por pelo menos 60 segundos, respeitando Retry-After maior. A proxima
 tentativa pula os modelos em pausa, e o modo recomendado reutiliza por ate cinco
 minutos o substituto que respondeu. Preferencias gravadas do usuario nao mudam.
@@ -493,4 +496,40 @@ semantico existente retornou `capacity_scope_mismatch`; disponibilidade nao
 equivale a entendimento correto. A validacao real nao passou. A tentativa
 restante nao foi usada e nao houve acesso a VM nem publicacao. Depois desse
 resultado, o usuario autorizou explicitamente commit e push do filtro, sem deploy.
-O release em producao continua sendo o fallback anterior, sem este filtro.
+Esse era o estado registrado pelo fluxo em 03/11; a consulta autorizada de 04/11
+encontrou a imagem `privacy-0c34247`, publicada posteriormente por outro fluxo.
+
+## Correcao da pausa do provedor — 04/11/2026
+
+A consulta autorizada dos logs de 08:42–08:43 (Sao Paulo) encontrou a imagem
+`app-financeiro-api:privacy-0c34247`, digest
+`sha256:41172e749ebc5f127a97b343bd0e0054900645f374819fbd0b1f98e01d9dcdf6`,
+ativa e sem reinicios. As 08:42:50, Xing retornou HTTP 429 em 1,957s, classificado
+como limite de modelo/provedor (`global=false`, `retry_after=30`). As 08:43:21,
+o backend retornou `assistant_models_unavailable` com espera de 30s sem enviar
+outro POST. Nao houve falha de interpretacao: a segunda requisicao foi barrada
+pela pausa interna antes de chegar a IA.
+
+O codigo aplicava pausa minima de 900s a qualquer modelo com 429, inclusive
+quando so havia um modelo elegivel. Isso prolongava a indisponibilidade alem
+dos 30s informados pelo provedor/erro. Havia outro erro: ao pular modelos em
+pausa, o calculo comparava seus timers com o atraso padrao de 30s; se todos os
+timers fossem maiores, reportava 30s mesmo assim. A mensagem generica ainda
+orientava tentar em instantes, escondendo a espera efetiva.
+
+Agora, quando ha apenas um modelo elegivel, 429 respeita a espera informada,
+com minimo de 30s, sem impor os 15 minutos destinados a rotacao. Com alternativas,
+a pausa de 15 minutos continua para evitar ficar preso no modelo falhando.
+Nao ha retry automatico do mesmo modelo na mesma mensagem. Se todos os modelos
+estiverem em pausa, a resposta informa o menor timer real, sem enviar POSTs nem
+consumir cota de usuario. A resposta da falha inicial tambem informa a pausa
+aplicada. O contrato `error_code`/`retry_after_seconds` permanece compativel e a
+mensagem de indisponibilidade inclui essa espera, sem garantir recuperacao.
+
+Os GETs publicos de metadados em 04/11 ainda mostraram apenas Xing/Phala na
+intersecao de texto, preco zero e politica privada. Codigo nao cria capacidade
+gratuita no provedor nem contorna cota global. O filtro de privacidade, teto de
+duas tentativas por mensagem, limites por usuario, 2048 tokens e prazo total de
+45s permanecem. O pedido desta publicacao proibe inferencias reais; a verificacao
+e feita com HTTP simulado, harness e GETs de disponibilidade da API. A capacidade
+semantica do modelo sobre a pergunta do carro nao e requalificada por isso.

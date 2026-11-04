@@ -68,7 +68,7 @@ func TestOpenRouterResponseDiagnosticsAreClosedAndDoNotExposeProviderData(t *tes
 			}
 			text, err := generator.generateText(GeminiRequest{DebugStage: "assistant_intent"})
 			var typed OpenRouterError
-			if text != "" || !errors.As(err, &typed) || typed.Code != "assistant_invalid_response" || typed.StatusCode != http.StatusBadGateway || typed.RetryAfterSeconds != 15 || typed.Global {
+			if text != "" || !errors.As(err, &typed) || typed.Code != "assistant_invalid_response" || typed.StatusCode != http.StatusBadGateway || (typed.RetryAfterSeconds < 59 || typed.RetryAfterSeconds > 61) || typed.Global {
 				t.Fatalf("invalid response changed public error contract: text=%q error=%v", text, err)
 			}
 			if calls.Load() != 1 {
@@ -184,7 +184,7 @@ func TestOpenRouterRejectsConflictingExpenseReadPlanBeforeSuccess(t *testing.T) 
 			}
 			text, err := generator.generateText(GeminiRequest{DebugStage: "assistant_intent"})
 			var typed OpenRouterError
-			if text != "" || !errors.As(err, &typed) || typed.Code != "assistant_invalid_response" || typed.StatusCode != http.StatusBadGateway || typed.RetryAfterSeconds != 15 || typed.Global {
+			if text != "" || !errors.As(err, &typed) || typed.Code != "assistant_invalid_response" || typed.StatusCode != http.StatusBadGateway || (typed.RetryAfterSeconds < 59 || typed.RetryAfterSeconds > 61) || typed.Global {
 				t.Fatalf("conflicting response did not fail closed: text=%q error=%v", text, err)
 			}
 			client := generator.(*openRouterClient)
@@ -326,7 +326,7 @@ func TestOpenRouterRejectsExpenseWhenUserExplicitlyAskedRead(t *testing.T) {
 				}
 				if test.blocked {
 					var typed OpenRouterError
-					if text != "" || !errors.As(err, &typed) || typed.Code != "assistant_invalid_response" || typed.StatusCode != http.StatusBadGateway || typed.RetryAfterSeconds != 15 || typed.Global || client.modelUsed() != "" {
+					if text != "" || !errors.As(err, &typed) || typed.Code != "assistant_invalid_response" || typed.StatusCode != http.StatusBadGateway || (typed.RetryAfterSeconds < 59 || typed.RetryAfterSeconds > 61) || typed.Global || client.modelUsed() != "" {
 						t.Fatalf("unrequested creation was accepted: text=%q err=%v", text, err)
 					}
 					if !strings.Contains(logs.String(), "reason=intent_action_not_requested") || routerCooldownRemaining(client.account+":test/first:free") == 0 {

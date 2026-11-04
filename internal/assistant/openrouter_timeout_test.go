@@ -237,7 +237,7 @@ func TestOpenRouterTimeoutChangeKeepsGenuineJSONErrorsDistinct(t *testing.T) {
 	}
 	text, err := generator.generateText(GeminiRequest{DebugStage: "assistant_intent"})
 	var typed OpenRouterError
-	if text != "" || !errors.As(err, &typed) || typed.Code != "assistant_invalid_response" || typed.StatusCode != http.StatusBadGateway || typed.RetryAfterSeconds != 15 || typed.Global || calls.Load() != 1 {
+	if text != "" || !errors.As(err, &typed) || typed.Code != "assistant_invalid_response" || typed.StatusCode != http.StatusBadGateway || (typed.RetryAfterSeconds < 59 || typed.RetryAfterSeconds > 61) || typed.Global || calls.Load() != 1 {
 		t.Fatalf("genuine malformed JSON was misclassified as a timeout: text=%q calls=%d error=%+v", text, calls.Load(), typed)
 	}
 }

@@ -211,6 +211,9 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 		return "", OpenRouterError{Code: "assistant_quota_exceeded", StatusCode: http.StatusTooManyRequests, RetryAfterSeconds: retry, Global: true}
 	}
 	lastError := OpenRouterError{Code: "assistant_models_unavailable", StatusCode: http.StatusServiceUnavailable, RetryAfterSeconds: 30}
+	// Track actual timers independently from the default error delay. Comparing
+	// against 30 would under-report every longer model pause without a POST.
+	earliestCooldown := 0
 	attempts := 0
 	maxAttempts := openRouterMaxAttempts
 	if client.ctx.Value(assistantMessageBudgetKey{}) != nil {
@@ -238,8 +241,8 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 		}
 		cooldownKey := client.account + ":" + model.ID
 		if retry := routerCooldownRemaining(cooldownKey); retry > 0 {
-			if retry < lastError.RetryAfterSeconds {
-				lastError.RetryAfterSeconds = retry
+			if earliestCooldown == 0 || retry < earliestCooldown {
+				earliestCooldown = retry
 			}
 			continue
 		}
@@ -273,14 +276,24 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 			pause := 60
 			if typed.StatusCode == http.StatusTooManyRequests {
 				pause = 15 * 60
+				// With no alternative, a fifteen-minute rotation penalty only
+				// locks everyone out longer than the provider requested. Still
+				// honor Retry-After and never retry inside the same message.
+				if len(models) == 1 {
+					pause = 30
+				}
 			}
 			setRouterCooldown(cooldownKey, max(typed.RetryAfterSeconds, pause))
+			lastError.RetryAfterSeconds = routerCooldownRemaining(cooldownKey)
 		}
 		// Do not buy another generated answer just to repair rejected content.
 		// The chat fallback is for unavailable providers, not semantic retries.
 		if typed.Code == "assistant_invalid_response" && client.ctx.Value(assistantMessageBudgetKey{}) != nil {
-			return "", typed
+			return "", lastError
 		}
+	}
+	if attempts == 0 && earliestCooldown > 0 {
+		lastError.RetryAfterSeconds = earliestCooldown
 	}
 	return "", lastError
 }

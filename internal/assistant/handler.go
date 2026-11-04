@@ -391,6 +391,9 @@ func assistantErrorResponse(err error) (string, string, int) {
 		if code == "assistant_quota_exceeded" {
 			return quotaReply(retryAfter), code, retryAfter
 		}
+		if code == "assistant_models_unavailable" && retryAfter > 0 {
+			return "A IA gratuita esta temporariamente indisponivel. Aguarde pelo menos " + strconv.Itoa(retryAfter) + " segundos antes de tentar novamente; a disponibilidade depende do provedor.", code, retryAfter
+		}
 		if code == "assistant_request_timeout" {
 			return "A IA demorou alem do tempo de espera e a resposta nao foi concluida. Tente novamente em instantes. Nenhum lancamento foi alterado.", code, retryAfter
 		}
