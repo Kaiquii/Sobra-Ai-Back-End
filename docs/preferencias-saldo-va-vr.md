@@ -1,5 +1,9 @@
 # Preferências de VA e VR no disponível mensal
 
+Publicado em 04/11/2026 e verificado às 14:47 de São Paulo, fonte `ad3d2d8`,
+schema 10. Ambas as opções continuam desativadas por padrão. Ver
+[evidências e rollback compatível](publicacao-preferencias-saldo-va-vr.md).
+
 Cada usuário possui duas opções independentes, ambas `false` por padrão:
 
 - `exclude_va_from_available`: excluir o restante de VA do disponível geral.

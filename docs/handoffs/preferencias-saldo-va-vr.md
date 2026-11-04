@@ -1,12 +1,16 @@
 # Handoff — preferências separadas de VA e VR
 
+Backend publicado e verificado em 04/11/2026 às 14:47 de São Paulo, fonte
+`ad3d2d8`, schema 10. [Contrato](../preferencias-saldo-va-vr.md) e
+[publicação/rollback](../publicacao-preferencias-saldo-va-vr.md).
+
 ## Condição explícita do usuário para web e Android
 
 **Antes de implementar a interface, conversar com o usuário para decidir onde
 ficarão os dois controles. Não escolher nem implementar a localização por conta
 própria.** Apresentar as opções de localização compatíveis com a plataforma e
-aguardar a decisão dele. O backend está sendo preparado independentemente
-dessa escolha; a existência das rotas não autoriza criar a UI sem a conversa.
+aguardar a decisão dele. O backend foi publicado independentemente dessa
+escolha; a existência das rotas não autoriza criar a UI sem a conversa.
 
 Controles propostos:
 
