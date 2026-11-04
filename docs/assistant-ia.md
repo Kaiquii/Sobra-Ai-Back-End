@@ -1,12 +1,15 @@
 # Assistente IA
 
-**Alternativas preparadas localmente em 04/11/2026 (ativacao pendente):** a
-configuracao `OPENROUTER_REQUIRE_ZDR` permite separar a politica original
-`data_collection=deny` do pre-filtro extra de descoberta ZDR. O padrao continua
-estrito (`true` ou variavel ausente); apenas `false` explicito usa o catalogo
-gratuito mais amplo. Nenhuma ativacao em producao foi feita por esta revisao.
+**Troca automatica validada e publicada em 04/11/2026, as 10:45 de Sao Paulo:**
+fonte `24ab9d2`, imagem `assistant-fallback-ready-20261104`. A configuracao
+autorizada `OPENROUTER_REQUIRE_ZDR=false` amplia o catalogo gratuito mantendo
+preco zero e `data_collection=deny`, com Dots3 prioritario. No teste real
+sintetico, Xing retornou 429 e a mesma mensagem recebeu resposta do Dots3,
+sem falha injetada, em 3049ms e duas tentativas. Harness, restauracao isolada
+do backup e 20 verificacoes GET HTTP/HTTPS passaram. O padrao do codigo
+continua estrito quando a variavel esta ausente ou vale `true`.
 
-**Correcao publicada em 04/11/2026, as 10:02 de Sao Paulo:** a pausa do modelo
+**Historico: correcao publicada em 04/11/2026, as 10:02 de Sao Paulo:** a pausa do modelo
 unico respeita o prazo do provedor (minimo 30s) sem impor os 15 minutos usados
 na rotacao entre alternativas. A espera informada considera todo o pool: um
 terceiro candidato disponivel nao fica bloqueado pelo timer do modelo anterior.
@@ -15,7 +18,7 @@ harness completo e 20 verificacoes GET HTTP/HTTPS passaram, sem inferencias
 reais. O limite externo do provedor e a qualificacao semantica continuam
 dependencias separadas; esta publicacao nao comprova resposta real da IA.
 
-**Filtro de provedores observado em producao em 04/11/2026:** a revisao
+**Historico: filtro de provedores observado em producao em 04/11/2026:** a revisao
 cruza `/models` com `/endpoints/zdr`, pelo ID exato da variante, para mostrar e
 usar apenas modelos com endpoint ativo, preco integralmente zero, politica ZDR
 e `safety_retention=false` explicito. Metadados ausentes ou indisponiveis impedem
@@ -653,3 +656,50 @@ envio de informacoes financeiras, mesmo quando o modelo e gratuito e declara
 nao usar prompts para treino. Essa guarda foi acrescentada apos a inferencia
 real, com regressao local; nao modifica os dois modelos, o prompt, os
 parametros, a politica `deny`, o parser ou o calculo usados no caso aprovado.
+
+### Publicacao verificada da troca em 04/11
+
+Fonte da API: `24ab9d2d5bf49dd611a654364df0fe6e64b51989`.
+Imagem: `app-financeiro-api:assistant-fallback-ready-20261104`, digest
+`sha256:f129ba6f76c64d0a1cbe20b28b5e5568ca3ee91eeb3d93ef40ace8afc9fe44b6`.
+Binario `main`: `2d0b77f94318efaa9bacb0403420d7770445bd0a6afb5ffa32ab91f0a2656472`.
+A API iniciou em `2026-11-04T13:45:39Z` e foi verificada em
+`2026-11-04T13:45:50Z` (10:45 de Sao Paulo), ativa e com zero reinicios.
+
+O harness completo passou depois da guarda contra modelos `stealth/`
+(cobertura geral 50,3%, assistente 67,6%). O pacote foi compilado da fonte
+commitada, com hashes e gate da validacao real. Essa guarda e sua regressao
+sao as unicas alteracoes Go posteriores ao teste real descrito acima; o
+harness foi repetido, sem novas inferencias.
+
+Antes da ativacao, o backup foi restaurado em PostgreSQL isolado, sem rede
+externa. As imagens nova e anterior passaram na verificacao do clone, com
+schema 9 e fingerprints financeiros preservados. Em producao, passaram 20
+GETs autenticados/nao autenticados por HTTP interno e HTTPS publico, cobrindo
+relatorios, rendas, despesas, conversas e preferencia de modelo. A auditoria
+confirmou o binario, a flag autorizada, as demais configuracoes, redes e
+volumes preservados, banco sem reinicio, migrations inalteradas e CDI presente.
+Nao houve migration aplicada, fixture criada em producao ou inferencia durante
+o deploy. As duas tentativas reais foram somente as da validacao sintetica
+anterior; a rodada encerrou em 2/2.
+
+A flag foi aplicada na configuracao do container da API, sem alterar arquivos
+`.env` ou o Compose local preexistente. Uma futura recriacao por outro fluxo
+deve manter explicitamente `OPENROUTER_REQUIRE_ZDR=false` para conservar essa
+decisao; sem a flag, o codigo volta ao modo estrito. As outras variaveis,
+incluindo credenciais e limites de consumo, foram preservadas.
+
+Evidencias e backup privados na VM:
+`/home/ubuntu/app-financeiro/deploy-assistant-fallback-ready-20261104`.
+Rollback somente da API, sob autorizacao especifica para a operacao:
+
+```sh
+sudo sh /home/ubuntu/app-financeiro/deploy-assistant-fallback-ready-20261104/rollback.sh
+```
+
+A recuperacao usa `app-financeiro-api:before-assistant-fallback-ready-20261104`,
+digest `sha256:8bce26e1fe9619a1c96074169f3545e0e637ef558898884ad8f5638f8cd96047`,
+e restaura exatamente o ambiente anterior, inclusive a antiga flag ou sua
+ausencia. Nao restaura o banco, pois o schema e os dados nao foram alterados
+pelo deploy. A disponibilidade externa continua sujeita aos provedores e
+limites globais; a troca automatica permanece limitada a duas tentativas.
