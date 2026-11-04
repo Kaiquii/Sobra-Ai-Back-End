@@ -1,13 +1,15 @@
 # Assistente IA
 
-**Revisao local de 04/11/2026, ainda nao publicada:** o fallback percorre os
+**Percurso dinamico publicado em 04/11/2026, verificado as 11:20 de Sao Paulo:**
+fonte `0e6e56d`, imagem `assistant-dynamic-fallback-20261104`. O fallback percorre os
 IDs unicos de todo o catalogo gratuito elegivel, sem teto fixo de dois ou tres
 modelos. Novas alternativas so podem iniciar nos primeiros 8s da geracao e com
 pelo menos 10s restantes no prazo compartilhado de 45s. Os limites existentes
 de franquia continuam valendo; nao ha garantia de percorrer todo o catalogo em
-uma mensagem. A publicacao registrada abaixo ainda usa o teto anterior.
+uma mensagem. Harness, restauracao isolada do backup, verificacao das duas
+imagens e 20 GETs HTTP/HTTPS passaram, sem novas inferencias reais.
 
-**Troca automatica validada e publicada em 04/11/2026, as 10:45 de Sao Paulo:**
+**Historico: troca automatica validada e publicada em 04/11/2026, as 10:45 de Sao Paulo:**
 fonte `24ab9d2`, imagem `assistant-fallback-ready-20261104`. A configuracao
 autorizada `OPENROUTER_REQUIRE_ZDR=false` amplia o catalogo gratuito mantendo
 preco zero e `data_collection=deny`, com Dots3 prioritario. No teste real
@@ -328,8 +330,8 @@ opacos sao excluidos; `openrouter/free` pode aparecer como roteador exclusivamen
 gratuito. Cache de cinco minutos com espera cancelavel e cache curto de falhas;
 se nao for possivel revalidar apos expirar, bloquear em vez de arriscar cobranca.
 
-O tamanho da lista nao impoe um teto fixo de modelos ao servidor. Na revisao
-local atual, cada POST de chat possui uma unica geracao compartilhada entre
+O tamanho da lista nao impoe um teto fixo de modelos ao servidor. Na versao
+atual, cada POST de chat possui uma unica geracao compartilhada entre
 clientes e etapas, com ate uma tentativa por ID unico do catalogo efetivo.
 Falhas recuperaveis podem avancar para os proximos candidatos dentro da janela
 de inicio do fallback e das cotas existentes. Modelos em cooldown sao pulados
@@ -711,10 +713,10 @@ ausencia. Nao restaura o banco, pois o schema e os dados nao foram alterados
 pelo deploy. A disponibilidade externa continua sujeita aos provedores e
 limites globais; naquela publicacao a troca automatica ficou limitada a duas tentativas.
 
-### Percurso dinamico do catalogo — revisao local de 04/11
+### Percurso dinamico do catalogo — publicado em 04/11
 
 O limite fixo de dois candidatos no chat e o de tres no cliente sem contexto
-de mensagem foram removidos nesta revisao local. A geracao recebe uma vez um
+de mensagem foram removidos nesta revisao. A geracao recebe uma vez um
 orcamento derivado da quantidade de IDs unicos do catalogo efetivo. Cada ID e
 tentado no maximo uma vez; IDs repetidos ou vazios nao ampliam o percurso.
 Outra instancia do cliente ou etapa na mesma mensagem nao pode adquirir uma
@@ -753,4 +755,54 @@ limites por minuto/dia contabilizados a cada tentativa; fronteiras da janela e
 deadline curto sem cobrar ou pausar candidatos nao chamados. O pacote do
 assistente e o harness completo (`scripts/test.ps1`: formatacao, vet, build e
 testes com ordem embaralhada) passaram; cobertura geral 50,4% e assistente 67,8%.
-Nenhuma chamada real, conexao com a VM ou publicacao faz parte dessa revisao.
+Nao foram feitas novas inferencias reais nesta revisao, conforme pedido do
+usuario; a publicacao autorizada foi validada sem completions externas.
+
+### Evidencias e rollback do percurso dinamico
+
+Fonte da API: `0e6e56d1963f8b3ab8b58ff75196db92ee7ba25e`.
+Imagem: `app-financeiro-api:assistant-dynamic-fallback-20261104`, digest
+`sha256:ea49f94c603b4654327d3e5d02ccd65ae0089126526eea7454a19eed537453c1`.
+Binario `main`: `1cb87a9db0a335d203abcce865a37b6cd40d574bdde109a8cc1a2846eb8f8e27`.
+Pacote SHA256: `5bd6f6860b25bc84eda287159511a239cc6b2602f0497458dae1f20781a3655c`.
+O pacote foi compilado da fonte commitada e conferido contra o freeze dos
+159 arquivos Go/modulo validados pelo harness. Compose, ambiente, credenciais
+e alteracoes preexistentes do usuario nao entraram no commit nem no pacote.
+
+A API iniciou em `2026-11-04T14:19:51Z` e foi verificada em
+`2026-11-04T14:20:01Z` (11:20 de Sao Paulo), ativa e com zero reinicios.
+Todas as variaveis e demais configuracoes do container foram preservadas,
+incluindo `OPENROUTER_REQUIRE_ZDR=false`, credenciais, cotas, redes e volumes.
+O banco permaneceu com o mesmo container, imagem, configuracao e inicio de
+execucao; schema 9 e registro das migrations permaneceram inalterados.
+
+O backup privado foi restaurado em PostgreSQL isolado, sem rede externa. As
+imagens nova e anterior passaram no clone, sem chave de inferencia, com
+fingerprints financeiros preservados. Depois da ativacao, passaram os 20 GETs
+autenticados/nao autenticados por HTTP interno e HTTPS publico para relatorios,
+rendas, despesas, conversas e preferencia de modelo. A auditoria conferiu o
+binario, as configuracoes, schema, CDI/defaults, integridade do backup e remocao
+dos containers temporarios. Nenhuma migration foi aplicada e nenhuma fixture
+foi criada em producao.
+
+O manifesto registra `real_validation_attempts=0` e
+`deployment_inference_requests=0`. Os testes simulados comprovam o percurso
+dinamico; os GETs comprovam a ativacao e os contratos HTTP verificados. Eles nao
+comprovam disponibilidade ou qualificacao semantica de um provedor real nesta
+revisao, e o teste real anterior continua identificado como historico.
+
+Evidencias e backup privados na VM:
+`/home/ubuntu/app-financeiro/deploy-assistant-dynamic-fallback-20261104`.
+O script de promocao restaura a API anterior se houver falha de ativacao,
+aceitacao ou auditoria. Rollback manual somente da API, sob autorizacao
+especifica para uma nova operacao:
+
+```sh
+sudo sh /home/ubuntu/app-financeiro/deploy-assistant-dynamic-fallback-20261104/rollback.sh
+```
+
+A recuperacao usa `app-financeiro-api:before-assistant-dynamic-fallback-20261104`,
+digest `sha256:f129ba6f76c64d0a1cbe20b28b5e5568ca3ee91eeb3d93ef40ace8afc9fe44b6`,
+com o ambiente anterior exato. Nao restaura o banco: o deploy nao alterou
+schema ou dados financeiros, e a imagem anterior foi verificada no mesmo
+backup restaurado.
