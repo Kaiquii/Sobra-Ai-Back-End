@@ -628,6 +628,14 @@ func classifyRouterError(response *http.Response, result openRouterResponse) Ope
 		return OpenRouterError{Code: "assistant_quota_exceeded", StatusCode: status, RetryAfterSeconds: max(retry, 30), Global: global}
 	case http.StatusBadRequest, http.StatusUnprocessableEntity:
 		return OpenRouterError{Code: "assistant_invalid_request", StatusCode: status}
+	case http.StatusNotFound:
+		// A request denied by the data policy is model-specific: rotate while
+		// keeping deny. Never spend the next message discovering the same
+		// incompatible route again, and never enable collection to recover.
+		if result.Error != nil && strings.Contains(strings.ToLower(result.Error.Message), "data policy") {
+			return OpenRouterError{Code: "assistant_models_unavailable", StatusCode: status, RetryAfterSeconds: max(retry, 300)}
+		}
+		return OpenRouterError{Code: "assistant_models_unavailable", StatusCode: status, RetryAfterSeconds: max(retry, 60)}
 	default:
 		return OpenRouterError{Code: "assistant_models_unavailable", StatusCode: status, RetryAfterSeconds: max(retry, 15)}
 	}

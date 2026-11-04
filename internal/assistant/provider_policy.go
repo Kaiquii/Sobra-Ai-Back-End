@@ -5,11 +5,29 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
 )
+
+// The original no-collection policy is enforced on every completion by
+// data_collection=deny. The additional ZDR discovery restriction remains the
+// default; disabling it requires an explicit configuration choice. The router
+// still enforces deny even when that optional prefilter is disabled.
+func assistantRequiresZDR() (bool, error) {
+	value := strings.TrimSpace(os.Getenv("OPENROUTER_REQUIRE_ZDR"))
+	if value == "" {
+		return true, nil
+	}
+	required, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, catalogUnavailable()
+	}
+	return required, nil
+}
 
 type privateFreeEndpoint struct {
 	ModelID         string                     `json:"model_id"`

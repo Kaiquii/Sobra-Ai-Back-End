@@ -12,6 +12,19 @@ import (
 	"time"
 )
 
+func TestFreePriceDoesNotPermitFinanciallyRestrictedStealthModels(t *testing.T) {
+	for _, id := range []string{"stealth/crouton-alpha", "stealth/another-free-preview", "test/ordinary:free"} {
+		var model catalogModel
+		encoded, err := json.Marshal(testCatalogEntry(id))
+		if err != nil || json.Unmarshal(encoded, &model) != nil {
+			t.Fatal("invalid fixture")
+		}
+		if got, want := eligibleFreeModel(model), !strings.HasPrefix(id, "stealth/"); got != want {
+			t.Fatalf("financial suitability for %s = %t, want %t", id, got, want)
+		}
+	}
+}
+
 func TestFreeModelPricingRejectsEveryChargeAndUnknownPrice(t *testing.T) {
 	cases := []struct {
 		name, raw string

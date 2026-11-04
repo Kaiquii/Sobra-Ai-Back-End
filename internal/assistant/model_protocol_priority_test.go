@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestCatalogPrioritizesBoundedNativeProtocolWithoutRemovingFreeOptions(t *testing.T) {
+func TestCatalogKeepsQualifiedRecommendationBeforeBoundedNativeFallbacks(t *testing.T) {
 	setupRouterTest(t, func(w http.ResponseWriter, r *http.Request) {
 		entries := []any{}
 		for _, model := range []struct {
@@ -35,7 +35,7 @@ func TestCatalogPrioritizesBoundedNativeProtocolWithoutRemovingFreeOptions(t *te
 	if err != nil || len(models) != 4 {
 		t.Fatalf("free options were removed: %v %v", models, err)
 	}
-	want := []string{"test/native:free", "test/mandatory:free", legacyJSONAssistantModelID, "test/plain:free"}
+	want := []string{legacyJSONAssistantModelID, "test/native:free", "test/mandatory:free", "test/plain:free"}
 	for i, model := range models {
 		if model.ID != want[i] || model.Recommended != (i == 0) {
 			t.Fatalf("fallback priority lost protocol or reasoning capabilities: %v", models)

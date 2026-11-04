@@ -40,6 +40,9 @@ func setupRouterTest(t *testing.T, handler http.HandlerFunc) {
 
 func setupRouterPolicyTest(t *testing.T, handler, endpoints http.HandlerFunc) {
 	t.Helper()
+	// Existing endpoint-policy scenarios exercise the optional strict mode.
+	// Default original-policy routing has dedicated coverage.
+	t.Setenv("OPENROUTER_REQUIRE_ZDR", "true")
 	t.Setenv("OPENROUTER_API_KEY", "test-openrouter-secret")
 	assistantModelCatalog.Lock()
 	assistantModelCatalog.models = nil

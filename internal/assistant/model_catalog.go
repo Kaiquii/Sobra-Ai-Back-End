@@ -18,8 +18,8 @@ const openRouterBaseURL = "https://openrouter.ai/api/v1"
 const modelCatalogTTL = 5 * time.Minute
 const modelCatalogFailureTTL = 5 * time.Second
 
-const preferredAssistantModelID = "xingchen-agi/xing4.0-29b-a4b:free"
 const legacyJSONAssistantModelID = "dots-studio/dots-3-note-preview:free"
+const preferredAssistantModelID = legacyJSONAssistantModelID
 
 // AssistantModel is a server-approved, currently zero-priced text model.
 type AssistantModel struct {
@@ -120,6 +120,10 @@ func refreshAssistantModelCatalog(ready chan struct{}) {
 }
 
 func fetchFreeAssistantModels(ctx context.Context) ([]AssistantModel, error) {
+	requireZDR, err := assistantRequiresZDR()
+	if err != nil {
+		return nil, err
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, openRouterBaseURL+"/models", nil)
 	if err != nil {
 		return nil, catalogUnavailable()
@@ -139,14 +143,17 @@ func fetchFreeAssistantModels(ctx context.Context) ([]AssistantModel, error) {
 	if err := json.NewDecoder(io.LimitReader(response.Body, 12<<20)).Decode(&catalog); err != nil {
 		return nil, catalogUnavailable()
 	}
-	providers, err := fetchPrivateFreeProviders(ctx)
-	if err != nil {
-		return nil, err
+	var providers map[string][]string
+	if requireZDR {
+		providers, err = fetchPrivateFreeProviders(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 	models := make([]AssistantModel, 0)
 	seen := make(map[string]bool)
 	for _, entry := range catalog.Data {
-		if !eligibleFreeModel(entry) || seen[entry.ID] || len(providers[entry.ID]) == 0 {
+		if !eligibleFreeModel(entry) || seen[entry.ID] || (requireZDR && len(providers[entry.ID]) == 0) {
 			continue
 		}
 		seen[entry.ID] = true
@@ -215,6 +222,9 @@ func eligibleFreeModel(entry catalogModel) bool {
 	opaqueRouter := entry.ID == "openrouter/auto" ||
 		(strings.EqualFold(entry.Architecture.Tokenizer, "Router") && entry.ID != "openrouter/free")
 	return !opaqueRouter && entry.ID != "" && len(entry.ID) <= 160 &&
+		// Stealth-program terms prohibit submitting financial information.
+		// Their free price does not make them suitable for this assistant.
+		!strings.HasPrefix(entry.ID, "stealth/") &&
 		strings.TrimSpace(entry.ID) == entry.ID && strings.Contains(entry.ID, "/") &&
 		!strings.ContainsFunc(entry.ID, unicode.IsSpace) && !strings.ContainsFunc(entry.ID, unicode.IsControl) &&
 		!strings.ContainsAny(entry.ID, "?#\\") &&

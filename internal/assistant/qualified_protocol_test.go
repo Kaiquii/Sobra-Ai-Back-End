@@ -17,11 +17,11 @@ func TestLegacyDotsUsesJSONWithServerValidation(t *testing.T) {
 	}
 }
 
-func TestRecommendedModelUsesNativeSchemaWithoutInheritingDotsException(t *testing.T) {
-	model := AssistantModel{ID: preferredAssistantModelID, ContextLength: 32768, SupportsStructuredOutputs: true, SupportsResponseFormat: true, SupportsMaxTokens: true}
+func TestNativeAlternativeUsesSchemaWithoutInheritingDotsException(t *testing.T) {
+	model := AssistantModel{ID: "xingchen-agi/xing4.0-29b-a4b:free", ContextLength: 32768, SupportsStructuredOutputs: true, SupportsResponseFormat: true, SupportsMaxTokens: true}
 	payload, err := routerPayload(model, GeminiRequest{DebugStage: "assistant_intent", CategoryNames: []string{"Transporte", "Moradia"}})
 	if err != nil || payload.ResponseFormat["type"] != "json_schema" || payload.MaxTokens != 2048 {
-		t.Fatalf("recommended model lost its native bounded protocol: %v %v", payload, err)
+		t.Fatalf("native alternative lost its bounded protocol: %v %v", payload, err)
 	}
 	format := responseSchemaTestJSON(t, payload.ResponseFormat)
 	schema := format["json_schema"].(map[string]any)["schema"].(map[string]any)

@@ -1,5 +1,11 @@
 # Assistente IA
 
+**Alternativas preparadas localmente em 04/11/2026 (ativacao pendente):** a
+configuracao `OPENROUTER_REQUIRE_ZDR` permite separar a politica original
+`data_collection=deny` do pre-filtro extra de descoberta ZDR. O padrao continua
+estrito (`true` ou variavel ausente); apenas `false` explicito usa o catalogo
+gratuito mais amplo. Nenhuma ativacao em producao foi feita por esta revisao.
+
 **Correcao publicada em 04/11/2026, as 10:02 de Sao Paulo:** a pausa do modelo
 unico respeita o prazo do provedor (minimo 30s) sem impor os 15 minutos usados
 na rotacao entre alternativas. A espera informada considera todo o pool: um
@@ -582,3 +588,68 @@ sudo sh /home/ubuntu/app-financeiro/deploy-assistant-cooldown-v2-20261104/rollba
 A recuperacao usa `app-financeiro-api:before-assistant-cooldown-v2-20261104`,
 digest `sha256:41172e749ebc5f127a97b343bd0e0054900645f374819fbd0b1f98e01d9dcdf6`,
 correspondente a imagem `privacy-0c34247` e a configuracao observadas antes da troca.
+
+## Alternativas gratuitas e troca automatica — revisao local de 04/11
+
+A lista publica de endpoints ZDR nao e equivalente a uma completion aceita
+sob `data_collection=deny`. Nos dois testes reais autorizados desta rodada,
+o Dots3-Note Preview respondeu HTTP 200 em 3014ms, com 3341 tokens de entrada
+e 11 de saida, mantendo preco maximo zero e `data_collection=deny`, sem o
+pre-filtro extra. O plano da pergunta sintetica `car_exact` passou no avaliador
+existente: consulta de poupanca para novembro/2026, sobra de R$ 800,00 calculada
+localmente, sem VA/VR e sem inventar renda/despesas. O Gemma 4 31B retornou 429
+de provedor em 344ms e nao foi qualificado. Foram usadas duas de duas tentativas;
+nao se deve inferir disponibilidade ou qualidade universal a partir desse caso.
+
+O Dots3 e a primeira recomendacao quando presente no catalogo permitido, com
+`json_object` e validacao financeira local. A excecao por ID permanece; outros
+modelos com protocolo nativo continuam usando JSON Schema. O recomendado precisa
+estar no catalogo efetivo: no modo estrito, o Dots3 pode continuar excluido.
+
+| Configuracao | Descoberta | Restricoes em toda completion |
+| --- | --- | --- |
+| Ausente ou `true` | Intersecao exata com endpoint ZDR gratuito, ativo e sem Safety Retention | Preco zero, `data_collection=deny`, `zdr=true`, provedores verificados |
+| `false` explicito | Modelos de texto de preco zero; admissibilidade de dados aplicada pela OpenRouter em cada chamada | Preco zero, `data_collection=deny`, `require_parameters=true`; nao exige atestacao ZDR local |
+
+Um valor invalido falha fechado, sem consulta ao catalogo. Desabilitar o
+pre-filtro extra pode ampliar os destinos dos prompts financeiros; nao comprova
+retencao zero em cada endpoint. Esta e uma decisao de privacidade explicita para
+a ativacao, mesmo mantendo o bloqueio original `deny`. Nunca enviar
+`data_collection=allow` nem habilitar treino/logging automaticamente na conta.
+
+Falha recuperavel troca para outra opcao na mesma mensagem, com teto total de
+duas tentativas, uma geracao e 2048 tokens por tentativa. Um substituto que
+responde fica priorizado temporariamente. Rejeicao 404 por politica de dados
+pausa apenas aquele modelo por pelo menos cinco minutos e tenta outro, mantendo
+`deny`; nao relaxa a politica para conseguir resposta. 429/503 preservam seus
+cooldowns, e cota global, credenciais invalidas, timeout, cancelamento e limite
+por usuario encerram o fluxo como antes. JSON/semantica rejeitados nao ganham
+outra completion. Confirmacao de despesas e calculos continuam no Go.
+
+Regressoes locais cobrem falha 429/404/503 seguida de resposta do substituto na
+mesma mensagem, reuse entre clientes, preco zero, cota por tentativa sem reset,
+limite global, modo estrito por padrao e contrato JSON. Os testes nao alteram
+configuracao da VM e usam somente chave ficticia/HTTP simulado.
+
+### Ativacao autorizada e validacao real da troca
+
+O usuario autorizou explicitamente configurar `OPENROUTER_REQUIRE_ZDR=false`,
+mantendo `data_collection=deny` e preco zero, executar ate duas novas tentativas
+sinteticas e publicar somente a API com backup/rollback se a validacao passasse.
+Essa autorizacao resolveu a rejeicao automatica anterior sobre a ampliacao de
+destinos sem consentimento especifico; o padrao do codigo continua estrito.
+
+O teste real da configuracao aprovada passou: Xing retornou 429 em 1634ms e o
+mesmo `generateText` trocou para Dots3, que retornou 200 em 1248ms. O fluxo todo
+levou 3049ms e usou exatamente duas tentativas, sem falha injetada. O plano da
+pergunta sintetica do carro passou no avaliador existente, preservando o periodo
+atual e a sobra de R$ 800,00 calculada no Go. Isso comprova esse caso de troca e
+resposta, sem prometer capacidade ilimitada, ausencia de limites globais ou
+compreensao universal. O deploy nao inclui novas inferencias reais.
+
+A revisao final tambem exclui modelos `stealth/` do assistente financeiro:
+os [termos oficiais do programa](https://openrouter.ai/terms/stealth) proíbem o
+envio de informacoes financeiras, mesmo quando o modelo e gratuito e declara
+nao usar prompts para treino. Essa guarda foi acrescentada apos a inferencia
+real, com regressao local; nao modifica os dois modelos, o prompt, os
+parametros, a politica `deny`, o parser ou o calculo usados no caso aprovado.
