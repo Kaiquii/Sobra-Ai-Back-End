@@ -242,3 +242,89 @@ func TestCoolingDownMessageDoesNotConsumeUserAllowance(t *testing.T) {
 		t.Fatalf("cooldown-only messages consumed allowance: posts=%d entry=%+v", posts.Load(), entry)
 	}
 }
+
+func TestAttemptCeilingDoesNotHideReadyThirdModelBehindLongPause(t *testing.T) {
+	var posts atomic.Int32
+	setupRouterTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeTestCatalog(w)
+			return
+		}
+		posts.Add(1)
+		var payload openRouterRequest
+		if json.NewDecoder(r.Body).Decode(&payload) != nil {
+			t.Error("invalid test completion payload")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if payload.Model == "test/third:free" {
+			writeRouterReply(w, "Third model is ready")
+			return
+		}
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"code":429,"metadata":{"provider_name":"fixture"}}}`))
+	})
+	first, err := newAssistantGeneratorForModel(withAssistantMessageBudget(context.Background()), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := first.(*openRouterClient)
+	_, err = first.generateText(GeminiRequest{})
+	var failure OpenRouterError
+	if !errors.As(err, &failure) || failure.Code != "assistant_quota_exceeded" || failure.Global || failure.RetryAfterSeconds != 0 || posts.Load() != 2 {
+		t.Fatalf("message ceiling hid a ready fallback: posts=%d failure=%+v", posts.Load(), err)
+	}
+	for _, model := range []string{"test/first:free", "test/second:free"} {
+		if remaining := routerCooldownRemaining(client.account + ":" + model); remaining < 890 {
+			t.Fatalf("ready third model shortened failed model quarantine: model=%s remaining=%d", model, remaining)
+		}
+	}
+	next, err := newAssistantGeneratorForModel(withAssistantMessageBudget(context.Background()), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, err := next.generateText(GeminiRequest{}); err != nil || text != "Third model is ready" || posts.Load() != 3 {
+		t.Fatalf("new message did not reach ready third model: text=%q posts=%d err=%v", text, posts.Load(), err)
+	}
+	if routerCooldownRemaining(client.account) != 0 {
+		t.Fatal("failed alternatives must not create an account pause")
+	}
+}
+
+func TestNewProviderFailureReportsEarliestTimerFromEntirePool(t *testing.T) {
+	var posts atomic.Int32
+	setupRouterTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeTestCatalog(w)
+			return
+		}
+		posts.Add(1)
+		var payload openRouterRequest
+		if json.NewDecoder(r.Body).Decode(&payload) != nil || payload.Model != "test/second:free" {
+			t.Error("completion reached an already paused model")
+		}
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"code":429,"metadata":{"provider_name":"fixture"}}}`))
+	})
+	generator, err := newAssistantGeneratorForModel(withAssistantMessageBudget(context.Background()), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := generator.(*openRouterClient)
+	setRouterCooldown(client.account+":test/first:free", 90)
+	setRouterCooldown(client.account+":test/third:free", 240)
+	_, err = generator.generateText(GeminiRequest{})
+	var failure OpenRouterError
+	if !errors.As(err, &failure) || failure.Code != "assistant_quota_exceeded" || failure.Global || posts.Load() != 1 {
+		t.Fatalf("expected one isolated provider rejection: posts=%d err=%v", posts.Load(), err)
+	}
+	remaining := routerCooldownRemaining(client.account + ":test/first:free")
+	if failure.RetryAfterSeconds < remaining || failure.RetryAfterSeconds > remaining+1 {
+		t.Fatalf("new failure hid shorter timer in full pool: retry=%d remaining=%d", failure.RetryAfterSeconds, remaining)
+	}
+	if routerCooldownRemaining(client.account+":test/second:free") < 890 || routerCooldownRemaining(client.account) != 0 {
+		t.Fatal("pool wait must not shorten failed model pause or create account pause")
+	}
+}

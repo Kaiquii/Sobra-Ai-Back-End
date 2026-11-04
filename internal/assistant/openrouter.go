@@ -211,9 +211,6 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 		return "", OpenRouterError{Code: "assistant_quota_exceeded", StatusCode: http.StatusTooManyRequests, RetryAfterSeconds: retry, Global: true}
 	}
 	lastError := OpenRouterError{Code: "assistant_models_unavailable", StatusCode: http.StatusServiceUnavailable, RetryAfterSeconds: 30}
-	// Track actual timers independently from the default error delay. Comparing
-	// against 30 would under-report every longer model pause without a POST.
-	earliestCooldown := 0
 	attempts := 0
 	maxAttempts := openRouterMaxAttempts
 	if client.ctx.Value(assistantMessageBudgetKey{}) != nil {
@@ -240,10 +237,7 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 			return "", OpenRouterError{Code: "assistant_quota_exceeded", StatusCode: http.StatusTooManyRequests, RetryAfterSeconds: retry, Global: true}
 		}
 		cooldownKey := client.account + ":" + model.ID
-		if retry := routerCooldownRemaining(cooldownKey); retry > 0 {
-			if earliestCooldown == 0 || retry < earliestCooldown {
-				earliestCooldown = retry
-			}
+		if routerCooldownRemaining(cooldownKey) > 0 {
 			continue
 		}
 		text, attempted, err := client.generateWithModel(ctx, model, request)
@@ -292,10 +286,27 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 			return "", lastError
 		}
 	}
-	if attempts == 0 && earliestCooldown > 0 {
-		lastError.RetryAfterSeconds = earliestCooldown
+	if len(models) > 0 {
+		// The response controls when a NEW message may use any model, not
+		// when the last failed model may be retried. Include candidates not
+		// visited because this message already spent its attempt allowance.
+		lastError.RetryAfterSeconds = modelPoolCooldownSeconds(client.account, models)
 	}
 	return "", lastError
+}
+
+func modelPoolCooldownSeconds(account string, models []AssistantModel) int {
+	earliest := 0
+	for _, model := range models {
+		retry := routerCooldownRemaining(account + ":" + model.ID)
+		if retry == 0 {
+			return 0
+		}
+		if earliest == 0 || retry < earliest {
+			earliest = retry
+		}
+	}
+	return earliest
 }
 
 func (client *openRouterClient) generateWithModel(ctx context.Context, model AssistantModel, req GeminiRequest) (string, bool, error) {

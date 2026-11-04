@@ -522,8 +522,13 @@ com minimo de 30s, sem impor os 15 minutos destinados a rotacao. Com alternativa
 a pausa de 15 minutos continua para evitar ficar preso no modelo falhando.
 Nao ha retry automatico do mesmo modelo na mesma mensagem. Se todos os modelos
 estiverem em pausa, a resposta informa o menor timer real, sem enviar POSTs nem
-consumir cota de usuario. A resposta da falha inicial tambem informa a pausa
-aplicada. O contrato `error_code`/`retry_after_seconds` permanece compativel e a
+consumir cota de usuario. A resposta de falhas recuperaveis considera o pool
+inteiro, inclusive modelos nao visitados pelo teto de duas tentativas. Se houver
+um candidato disponivel para uma nova mensagem, nao herda a pausa do ultimo
+modelo que falhou: informa `retry_after_seconds=0`, preservando os limites por
+usuario. Se todo o pool estiver em pausa, informa o menor timer real. A falha
+inicial com modelo unico tambem informa a pausa aplicada. O contrato
+`error_code`/`retry_after_seconds` permanece compativel e a
 mensagem de indisponibilidade inclui essa espera, sem garantir recuperacao.
 
 Os GETs publicos de metadados em 04/11 ainda mostraram apenas Xing/Phala na
