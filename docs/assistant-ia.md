@@ -1,5 +1,14 @@
 # Assistente IA
 
+**Correcao publicada em 04/11/2026, as 10:02 de Sao Paulo:** a pausa do modelo
+unico respeita o prazo do provedor (minimo 30s) sem impor os 15 minutos usados
+na rotacao entre alternativas. A espera informada considera todo o pool: um
+terceiro candidato disponivel nao fica bloqueado pelo timer do modelo anterior.
+Codigo `fd09458`, imagem `assistant-cooldown-v2-20261104`. Nove regressoes,
+harness completo e 20 verificacoes GET HTTP/HTTPS passaram, sem inferencias
+reais. O limite externo do provedor e a qualificacao semantica continuam
+dependencias separadas; esta publicacao nao comprova resposta real da IA.
+
 **Filtro de provedores observado em producao em 04/11/2026:** a revisao
 cruza `/models` com `/endpoints/zdr`, pelo ID exato da variante, para mostrar e
 usar apenas modelos com endpoint ativo, preco integralmente zero, politica ZDR
@@ -538,3 +547,38 @@ duas tentativas por mensagem, limites por usuario, 2048 tokens e prazo total de
 45s permanecem. O pedido desta publicacao proibe inferencias reais; a verificacao
 e feita com HTTP simulado, harness e GETs de disponibilidade da API. A capacidade
 semantica do modelo sobre a pergunta do carro nao e requalificada por isso.
+
+### Validacao e publicacao de 04/11
+
+O harness `scripts/test.ps1` passou: formatacao, vet, build e testes com cobertura
+(geral 50,2%; assistente 67,5%). Nove regressoes HTTP simuladas verificam espera
+real, menor timer do pool, terceiro modelo pronto apos duas falhas, recuperacao
+apos expiracao, respeito a Retry-After maior, ausencia de consumo durante pausa,
+contrato da mensagem e bloqueio de nova completion para resposta invalida.
+As quatro assercoes existentes de `invalid_response` passaram a comparar a
+pausa calculada de 60s com tolerancia de 1s do relogio; timeout permanece 15s.
+Nao foram relaxados codigo de erro, validacao financeira ou protecoes de escrita.
+
+Fonte publicada: `fd09458a2254a6fccf2895ea39aa98c3f5b88423` (inclui `223779e`).
+Imagem: `app-financeiro-api:assistant-cooldown-v2-20261104`, digest
+`sha256:8bce26e1fe9619a1c96074169f3545e0e637ef558898884ad8f5638f8cd96047`.
+SHA256 do binario API:
+`4922877dbf039dffccb10aeed5cf297c53a249cda8d8513bd54e7f668e6e43f9`.
+
+A API iniciou em 04/11 as 10:02:28 de Sao Paulo e foi verificada as 10:02:41,
+sem reinicios. Passaram 20 GETs autenticados/nao autenticados por HTTP/HTTPS e a
+auditoria de configuracao. Banco e schema 9 foram preservados, sem migration.
+O backup foi restaurado em PostgreSQL isolado; as imagens nova e anterior foram
+verificadas, com fingerprints financeiros preservados. O usuario autorizou
+explicitamente consultar, corrigir e publicar sem gastar chamadas de IA.
+As ferramentas fizeram zero inferencias, inclusive nos testes de publicacao.
+
+Rollback somente da API, preservando novas escritas no banco:
+
+```sh
+sudo sh /home/ubuntu/app-financeiro/deploy-assistant-cooldown-v2-20261104/rollback.sh
+```
+
+A recuperacao usa `app-financeiro-api:before-assistant-cooldown-v2-20261104`,
+digest `sha256:41172e749ebc5f127a97b343bd0e0054900645f374819fbd0b1f98e01d9dcdf6`,
+correspondente a imagem `privacy-0c34247` e a configuracao observadas antes da troca.
