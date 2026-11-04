@@ -4,6 +4,28 @@ Requisitos: Go conforme go.mod, Git e Codex CLI autenticado para executar agente
 Os comandos devem ser executados na raiz do repositorio. Os testes e a preparacao
 de tarefas nao precisam de autenticacao, banco ou servicos de IA.
 
+## Politica de branch
+
+O projeto trabalha somente na `main`: nao criar branches de tarefa, temporarias,
+auxiliares ou com prefixo `codex/`, inclusive em subagentes e worktrees.
+Todo commit/push autorizado e feito na `main`; o harness continua sem executar
+commit ou push automaticamente.
+
+Os modos `prepare` e `run` exigem `HEAD` na `main` antes de iniciar trabalho.
+Um desvio de branch durante as etapas interrompe o fluxo com erro e preserva
+os arquivos; o harness nao troca de branch, descarta alteracoes ou remove refs.
+O nome da branch e o inventario de branches locais sao conferidos antes/depois
+dos agentes e da validacao; criacao ou remocao detectada tambem bloqueia o fluxo.
+Os modos de consulta/verificacao nao concedem permissao para desenvolver ou
+commitar em outra branch. Para conferir o checkout:
+
+```powershell
+git branch --show-current
+```
+
+O resultado esperado e `main`. Se for outro ou estiver detached, regularize o
+checkout antes de iniciar uma tarefa mutante, preservando o trabalho existente.
+
 ```powershell
 # Validacao completa: formatacao, vet, build e testes com cobertura
 go run ./cmd/harness -mode verify

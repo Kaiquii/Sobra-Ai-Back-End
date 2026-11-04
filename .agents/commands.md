@@ -2,6 +2,22 @@
 
 Execute os comandos a partir da raiz do repositorio.
 
+## Git: Main Obrigatoria
+
+Nao criar novas branches, inclusive temporarias, auxiliares ou `codex/`, em
+tarefas, harness ou subagentes. Todo commit/push autorizado deve ocorrer na
+`main`; o harness nao executa esses comandos automaticamente. Antes de alterar
+arquivos e antes de commit/push, confira:
+
+```powershell
+git branch --show-current
+```
+
+O resultado deve ser `main`. Outra branch ou detached HEAD interrompe mutacoes;
+preserve o checkout e informe a divergencia, sem criar/trocar branches, descartar
+ou stashear trabalho para contornar a regra. Nao remover branches existentes
+sem pedido do usuario. Consulte AGENTS.md e docs/rules.md.
+
 ## Harness Completo
 
 Windows PowerShell:

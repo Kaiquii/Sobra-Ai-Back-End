@@ -1,5 +1,13 @@
 # Checklist De Revisao
 
+## Git: Somente Main
+
+- [ ] O trabalho e os commits/pushes autorizados ocorreram na `main`.
+- [ ] Nenhuma branch temporaria, auxiliar ou de tarefa foi criada pelo agente,
+  harness ou subagentes, inclusive por worktree/checkout alternativo.
+- [ ] Nenhuma branch foi trocada ou removida para contornar a politica.
+- [ ] O estado preexistente foi preservado; divergencias de branch foram relatadas.
+
 ## Codigo
 
 - [ ] A mudanca atende somente ao escopo solicitado.

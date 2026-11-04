@@ -1,5 +1,18 @@
 # Regras Do Projeto
 
+## Git: Sempre Na Main
+
+- Nao criar novas branches para nenhuma tarefa, teste, deploy, harness ou subagente,
+  incluindo branches temporarias e prefixos como `codex/`.
+- Trabalhar no checkout atual da `main`; todo commit e push autorizado deve ocorrer
+  nessa branch. Nao desenvolver em branches auxiliares por worktree ou outro checkout.
+- Verificar `git branch --show-current` antes de alterar arquivos e antes de commit/push.
+  O resultado deve ser `main`; outra branch ou detached HEAD interrompe mutacoes.
+- Preservar o estado se houver divergencia. Nao trocar automaticamente de branch,
+  descartar ou guardar alteracoes para contornar a regra. Informar a pendencia.
+- Esta politica nao autoriza remover branches existentes, nem fazer commit/push
+  sem autorizacao do usuario.
+
 ## VM E Producao
 
 - Todo trabalho deve ser realizado somente no projeto local por padrao.

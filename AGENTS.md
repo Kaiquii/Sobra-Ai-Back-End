@@ -29,6 +29,20 @@ Antes de alterar codigo:
 
 Quando estiver sendo executado pelo harness, nao inicie outro harness de agentes.
 
+## Politica De Git: Somente Main
+
+- Trabalhe no checkout da branch `main`. Nao crie branches novas, temporarias,
+  auxiliares ou de tarefa, inclusive com prefixo `codex/`, em nenhuma etapa.
+- Esta regra tambem vale para o harness e os subagentes. Nao use worktree ou
+  checkout alternativo para desenvolver em outra branch.
+- Antes de alterar arquivos e antes de qualquer commit/push autorizado, confirme
+  `git branch --show-current`: o resultado deve ser exatamente `main`.
+- Se estiver em outra branch ou detached HEAD, pare antes de mutacoes e preserve
+  o estado existente. Nao troque de branch nem descarte/stashe alteracoes para
+  forcar a execucao. Informe a divergencia para regularizar o checkout.
+- Todo commit e push autorizado deve ser feito na `main`. A regra nao autoriza
+  commits, pushes ou exclusao de branches sem pedido do usuario.
+
 ## Regras De Implementacao
 
 - Mantenha alteracoes pequenas e dentro do pedido do usuario.

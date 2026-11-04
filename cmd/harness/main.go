@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -22,6 +24,64 @@ type verdict struct {
 }
 
 type runner func(context.Context, string, string, []string, string, io.Writer) error
+
+type mainBranchPolicy struct {
+	refs map[string]bool
+}
+
+// Branch inspection is read-only. A policy failure never checks out, deletes,
+// resets or recreates a branch, so the user's working files remain untouched.
+func readMainBranchPolicy(ctx context.Context, root string, run runner) (mainBranchPolicy, error) {
+	if err := ctx.Err(); err != nil {
+		return mainBranchPolicy{}, err
+	}
+	var branch bytes.Buffer
+	if err := run(ctx, root, "git", []string{"symbolic-ref", "--quiet", "--short", "HEAD"}, "", &branch); err != nil {
+		return mainBranchPolicy{}, fmt.Errorf("o harness exige HEAD na branch main; HEAD destacado ou Git indisponivel: %w", err)
+	}
+	if current := strings.TrimSpace(branch.String()); current != "main" {
+		return mainBranchPolicy{}, fmt.Errorf("o harness exige a branch main; branch atual: %q; nenhuma branch sera criada ou trocada", current)
+	}
+	var refs bytes.Buffer
+	if err := run(ctx, root, "git", []string{"for-each-ref", "--format=%(refname)", "refs/heads/"}, "", &refs); err != nil {
+		return mainBranchPolicy{}, fmt.Errorf("nao foi possivel conferir as branches locais: %w", err)
+	}
+	policy := mainBranchPolicy{refs: make(map[string]bool)}
+	for _, ref := range strings.Fields(refs.String()) {
+		if !strings.HasPrefix(ref, "refs/heads/") {
+			return mainBranchPolicy{}, errors.New("inventario de branches locais invalido")
+		}
+		policy.refs[ref] = true
+	}
+	if !policy.refs["refs/heads/main"] {
+		return mainBranchPolicy{}, errors.New("o harness exige uma branch main existente; nenhuma branch sera criada")
+	}
+	return policy, nil
+}
+
+func (policy mainBranchPolicy) verify(ctx context.Context, root string, run runner) error {
+	current, err := readMainBranchPolicy(ctx, root, run)
+	if err != nil {
+		return err
+	}
+	var added, removed []string
+	for ref := range current.refs {
+		if !policy.refs[ref] {
+			added = append(added, ref)
+		}
+	}
+	for ref := range policy.refs {
+		if !current.refs[ref] {
+			removed = append(removed, ref)
+		}
+	}
+	if len(added) != 0 || len(removed) != 0 {
+		sort.Strings(added)
+		sort.Strings(removed)
+		return fmt.Errorf("politica Git do harness: branches alteradas (criadas: %v; removidas: %v); arquivos preservados, sem correcao automatica de branches", added, removed)
+	}
+	return nil
+}
 
 func resolveCLI(name string) (string, error) {
 	path, err := exec.LookPath(name)
@@ -81,6 +141,10 @@ func validate(ctx context.Context, root string, run runner, log io.Writer) error
 // pipeline never considers an agent's success message sufficient: both the
 // deterministic test gate and a separate read-only review must succeed.
 func pipeline(ctx context.Context, root, dir, cli, task string, attempts int, run runner) (err error) {
+	return pipelineWithBranchPolicy(ctx, root, dir, cli, task, attempts, run, nil)
+}
+
+func pipelineWithBranchPolicy(ctx context.Context, root, dir, cli, task string, attempts int, run runner, initial *mainBranchPolicy) (err error) {
 	state := verdict{Status: "blocked", Summary: "execution interrupted"}
 	defer func() {
 		if err != nil {
@@ -90,11 +154,24 @@ func pipeline(ctx context.Context, root, dir, cli, task string, attempts int, ru
 			err = errors.Join(err, saveErr)
 		}
 	}()
+	var policy mainBranchPolicy
+	if initial == nil {
+		policy, err = readMainBranchPolicy(ctx, root, run)
+	} else {
+		policy = *initial
+		err = policy.verify(ctx, root, run)
+	}
+	if err != nil {
+		return err
+	}
 	feedback := ""
 	for attempt := 1; attempt <= attempts; attempt++ {
 		for _, role := range []string{"implementer", "reviewer"} {
 			if err = ctx.Err(); err != nil {
 				return err
+			}
+			if err = policy.verify(ctx, root, run); err != nil {
+				return fmt.Errorf("antes de %s: %w", role, err)
 			}
 			profile, readErr := os.ReadFile(filepath.Join(root, "docs", "harness", role+".md"))
 			if readErr != nil {
@@ -109,10 +186,13 @@ func pipeline(ctx context.Context, root, dir, cli, task string, attempts int, ru
 			if role == "implementer" {
 				sandbox = "workspace-write"
 			}
-			prompt := string(profile) + "\nLeia AGENTS.md e docs/rules.md. Nao execute novamente o harness de agentes. Nao faca commit, push ou deploy.\nTarefa:\n" + task + "\nFeedback anterior:\n" + feedback
+			prompt := string(profile) + "\nLeia AGENTS.md e docs/rules.md. Trabalhe exclusivamente na branch main. Nao crie, troque, renomeie ou exclua branches, nem use worktrees para contornar essa regra. Commits do projeto pertencem somente a main; neste harness, nao faca commit, push ou deploy. Nao execute novamente o harness de agentes.\nTarefa:\n" + task + "\nFeedback anterior:\n" + feedback
 			args := []string{"exec", "--ephemeral", "--sandbox", sandbox, "--json", "--output-schema", filepath.Join(root, "docs", "harness", "result.schema.json"), "--output-last-message", output, "-C", root, "-"}
 			err = run(ctx, root, cli, args, prompt, log)
 			closeErr := log.Close()
+			if policyErr := policy.verify(ctx, root, run); policyErr != nil {
+				return errors.Join(fmt.Errorf("apos %s: %w", role, policyErr), err, closeErr)
+			}
 			if err != nil {
 				return fmt.Errorf("%s: %w", role, err)
 			}
@@ -131,12 +211,18 @@ func pipeline(ctx context.Context, root, dir, cli, task string, attempts int, ru
 				state = v
 				return nil
 			}
+			if err = policy.verify(ctx, root, run); err != nil {
+				return fmt.Errorf("antes da validacao: %w", err)
+			}
 			testLog, createErr := os.Create(filepath.Join(dir, fmt.Sprintf("%d-validation.log", attempt)))
 			if createErr != nil {
 				return createErr
 			}
 			testErr := validate(ctx, root, run, testLog)
 			closeErr = testLog.Close()
+			if policyErr := policy.verify(ctx, root, run); policyErr != nil {
+				return errors.Join(fmt.Errorf("apos validacao: %w", policyErr), testErr, closeErr)
+			}
 			if closeErr != nil {
 				return closeErr
 			}
@@ -150,6 +236,10 @@ func pipeline(ctx context.Context, root, dir, cli, task string, attempts int, ru
 }
 
 func execute(args []string) error {
+	return executeWithRunner(args, process)
+}
+
+func executeWithRunner(args []string, run runner) error {
 	f := flag.NewFlagSet("harness", flag.ContinueOnError)
 	mode := f.String("mode", "verify", "verify, prepare, run or doctor")
 	task := f.String("task", "", "task and acceptance criteria")
@@ -175,7 +265,7 @@ func execute(args []string) error {
 	defer cancel()
 	switch *mode {
 	case "verify":
-		return validate(ctx, root, process, os.Stdout)
+		return validate(ctx, root, run, os.Stdout)
 	case "doctor":
 		if *cli, err = resolveCLI(*cli); err != nil {
 			return err
@@ -185,7 +275,7 @@ func execute(args []string) error {
 				return err
 			}
 		}
-		return process(ctx, root, *cli, []string{"exec", "--help"}, "", os.Stdout)
+		return run(ctx, root, *cli, []string{"exec", "--help"}, "", os.Stdout)
 	case "prepare", "run":
 		if strings.TrimSpace(*task) == "" {
 			return errors.New("-task is required")
@@ -193,10 +283,17 @@ func execute(args []string) error {
 	default:
 		return errors.New("unknown mode")
 	}
+	policy, err := readMainBranchPolicy(ctx, root, run)
+	if err != nil {
+		return err
+	}
 	if *mode == "run" {
 		if *cli, err = resolveCLI(*cli); err != nil {
 			return fmt.Errorf("Codex CLI unavailable; use -codex with its path: %w", err)
 		}
+	}
+	if err = policy.verify(ctx, root, run); err != nil {
+		return err
 	}
 	base := filepath.Join(root, ".artifacts", "agents")
 	if err = os.MkdirAll(base, 0700); err != nil {
@@ -214,8 +311,11 @@ func execute(args []string) error {
 	if err != nil {
 		return err
 	}
-	err = process(ctx, root, "git", []string{"status", "--short"}, "", status)
+	err = run(ctx, root, "git", []string{"status", "--short"}, "", status)
 	closeErr := status.Close()
+	if policyErr := policy.verify(ctx, root, run); policyErr != nil {
+		return errors.Join(policyErr, err, closeErr)
+	}
 	if err != nil {
 		return err
 	}
@@ -235,7 +335,7 @@ func execute(args []string) error {
 		return err
 	}
 	defer os.Remove(lockPath)
-	return pipeline(ctx, root, dir, *cli, *task, *attempts, process)
+	return pipelineWithBranchPolicy(ctx, root, dir, *cli, *task, *attempts, run, &policy)
 }
 
 func main() {
