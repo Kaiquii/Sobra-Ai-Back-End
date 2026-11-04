@@ -472,7 +472,7 @@ func TestOpenRouterMaxCompletionTokensIsUsedOnlyWhenSupported(t *testing.T) {
 	}
 }
 
-func TestOpenRouterLargeMenuStillMakesAtMostThreeHTTPAttempts(t *testing.T) {
+func TestOpenRouterLargeMenuVisitsEveryReadyModelOnce(t *testing.T) {
 	for _, skipCoolingModels := range []bool{false, true} {
 		t.Run(strconv.FormatBool(skipCoolingModels), func(t *testing.T) {
 			var attempted []string
@@ -505,8 +505,12 @@ func TestOpenRouterLargeMenuStillMakesAtMostThreeHTTPAttempts(t *testing.T) {
 					setRouterCooldown(client.account+":"+modelID, 30)
 				}
 			}
-			if _, err := client.generateText(GeminiRequest{}); err == nil || len(attempted) != 3 {
-				t.Fatalf("HTTP attempt limit must remain three regardless of menu/cooldown: attempts=%v err=%v", attempted, err)
+			wantCalls := len(client.models)
+			if skipCoolingModels {
+				wantCalls -= 3
+			}
+			if _, err := client.generateText(GeminiRequest{}); err == nil || len(attempted) != wantCalls {
+				t.Fatalf("fallback must visit every ready catalog candidate: attempts=%v want=%d err=%v", attempted, wantCalls, err)
 			}
 			if !skipCoolingModels && (attempted[0] != "test/model-7:free" || attempted[1] != preferredAssistantModelID) {
 				t.Fatalf("selected model must precede recommended fallback: %v", attempted)

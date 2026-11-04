@@ -243,7 +243,7 @@ func TestCoolingDownMessageDoesNotConsumeUserAllowance(t *testing.T) {
 	}
 }
 
-func TestAttemptCeilingDoesNotHideReadyThirdModelBehindLongPause(t *testing.T) {
+func TestReadyThirdModelRespondsWithoutWaitingForAnotherMessage(t *testing.T) {
 	var posts atomic.Int32
 	setupRouterTest(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
@@ -270,10 +270,8 @@ func TestAttemptCeilingDoesNotHideReadyThirdModelBehindLongPause(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := first.(*openRouterClient)
-	_, err = first.generateText(GeminiRequest{})
-	var failure OpenRouterError
-	if !errors.As(err, &failure) || failure.Code != "assistant_quota_exceeded" || failure.Global || failure.RetryAfterSeconds != 0 || posts.Load() != 2 {
-		t.Fatalf("message ceiling hid a ready fallback: posts=%d failure=%+v", posts.Load(), err)
+	if text, err := first.generateText(GeminiRequest{}); err != nil || text != "Third model is ready" || posts.Load() != 3 {
+		t.Fatalf("message did not reach a ready fallback: text=%q posts=%d err=%v", text, posts.Load(), err)
 	}
 	for _, model := range []string{"test/first:free", "test/second:free"} {
 		if remaining := routerCooldownRemaining(client.account + ":" + model); remaining < 890 {
@@ -284,7 +282,7 @@ func TestAttemptCeilingDoesNotHideReadyThirdModelBehindLongPause(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text, err := next.generateText(GeminiRequest{}); err != nil || text != "Third model is ready" || posts.Load() != 3 {
+	if text, err := next.generateText(GeminiRequest{}); err != nil || text != "Third model is ready" || posts.Load() != 4 {
 		t.Fatalf("new message did not reach ready third model: text=%q posts=%d err=%v", text, posts.Load(), err)
 	}
 	if routerCooldownRemaining(client.account) != 0 {

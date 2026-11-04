@@ -13,6 +13,10 @@ import (
 
 func TestMessageBudgetIsSharedUnderConcurrentAttempts(t *testing.T) {
 	ctx := withAssistantMessageBudget(context.Background())
+	const catalogModels = 7
+	if !beginAssistantGeneration(ctx, catalogModels) || beginAssistantGeneration(ctx, 100) {
+		t.Fatal("message generation allowance was not claimed exactly once")
+	}
 	var successful atomic.Int32
 	var group sync.WaitGroup
 	for range 32 {
@@ -25,7 +29,7 @@ func TestMessageBudgetIsSharedUnderConcurrentAttempts(t *testing.T) {
 		}()
 	}
 	group.Wait()
-	if successful.Load() != assistantMessageMaxAttempts {
+	if successful.Load() != catalogModels {
 		t.Fatalf("shared message budget allowed %d attempts", successful.Load())
 	}
 }
@@ -44,11 +48,11 @@ func TestDefaultDailyAllowanceSupportsFiftyIndependentMessages(t *testing.T) {
 		assistantCallUsage.Unlock()
 	})
 	for i := range 50 {
-		if err := reserveAssistantCall(withAssistantMessageBudget(user)); err != nil {
+		if err := reserveAssistantCall(user); err != nil {
 			t.Fatalf("message %d rejected: %v", i+1, err)
 		}
 	}
-	usageError(t, reserveAssistantCall(withAssistantMessageBudget(user)))
+	usageError(t, reserveAssistantCall(user))
 }
 
 func TestChatMessageAllowsOnlyOneBoundedGenerationWithFallback(t *testing.T) {

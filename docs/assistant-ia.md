@@ -1,5 +1,12 @@
 # Assistente IA
 
+**Revisao local de 04/11/2026, ainda nao publicada:** o fallback percorre os
+IDs unicos de todo o catalogo gratuito elegivel, sem teto fixo de dois ou tres
+modelos. Novas alternativas so podem iniciar nos primeiros 8s da geracao e com
+pelo menos 10s restantes no prazo compartilhado de 45s. Os limites existentes
+de franquia continuam valendo; nao ha garantia de percorrer todo o catalogo em
+uma mensagem. A publicacao registrada abaixo ainda usa o teto anterior.
+
 **Troca automatica validada e publicada em 04/11/2026, as 10:45 de Sao Paulo:**
 fonte `24ab9d2`, imagem `assistant-fallback-ready-20261104`. A configuracao
 autorizada `OPENROUTER_REQUIRE_ZDR=false` amplia o catalogo gratuito mantendo
@@ -321,18 +328,18 @@ opacos sao excluidos; `openrouter/free` pode aparecer como roteador exclusivamen
 gratuito. Cache de cinco minutos com espera cancelavel e cache curto de falhas;
 se nao for possivel revalidar apos expirar, bloquear em vez de arriscar cobranca.
 
-O tamanho da lista nao limita os candidatos do servidor. Cada POST de chat tem um
-orcamento compartilhado de no maximo UMA chamada de completions. O orcamento e
-verificado na fronteira HTTP do provedor, inclusive se houver mais de um cliente
-ou etapa na mesma mensagem. Resposta invalida, truncada, timeout ou erro nao
-autorizam outra tentativa dentro desse POST. Modelos em cooldown podem ser
-descartados antes de enviar a chamada; uma falha recuperavel pode usar o segundo
-modelo na mesma mensagem, dentro do teto total de duas tentativas.
+O tamanho da lista nao impoe um teto fixo de modelos ao servidor. Na revisao
+local atual, cada POST de chat possui uma unica geracao compartilhada entre
+clientes e etapas, com ate uma tentativa por ID unico do catalogo efetivo.
+Falhas recuperaveis podem avancar para os proximos candidatos dentro da janela
+de inicio do fallback e das cotas existentes. Modelos em cooldown sao pulados
+sem chamada. Resposta invalida, truncada ou rejeitada semanticamente, timeout e
+cancelamento encerram a geracao sem comprar outra resposta.
 No modo automatico, o servidor reutiliza por ate cinco minutos o ultimo modelo
 gratuito que respondeu corretamente para a conta. Erros descartam essa prioridade;
 um modelo retirado do catalogo nao volta a ser utilizado por esse estado. Depois
 vem o recomendado e as demais alternativas elegiveis. Uma sugestao explicita de
-cliente antigo mantem prioridade sem aumentar o orcamento de duas tentativas.
+cliente antigo mantem prioridade sem reiniciar o orcamento da mensagem.
 Disponibilidade gratuita pode variar por modelo, capacidade ou politica
 de dados; o catalogo nao garante capacidade instantanea. A politica `deny` continua
 ativa; nao liberar uso para treinamento automaticamente para fazer uma opcao funcionar.
@@ -403,7 +410,7 @@ no commit nem no pacote de publicacao.
 
 ## Fallback limitado apos falha do provedor — 03/11/2026
 
-A politica atual substitui o limite anterior de uma tentativa HTTP por mensagem:
+Na publicacao de 03/11, a politica substituiu o limite de uma tentativa HTTP por mensagem:
 o fluxo normal continua com uma tentativa; se o provedor/modelo estiver indisponivel
 (429 especifico do modelo, 404, 5xx ou falha de rede sem timeout), pode tentar uma
 segunda IA do catalogo gratuito. O teto total e de **duas tentativas HTTP por
@@ -702,4 +709,48 @@ digest `sha256:8bce26e1fe9619a1c96074169f3545e0e637ef558898884ad8f5638f8cd96047`
 e restaura exatamente o ambiente anterior, inclusive a antiga flag ou sua
 ausencia. Nao restaura o banco, pois o schema e os dados nao foram alterados
 pelo deploy. A disponibilidade externa continua sujeita aos provedores e
-limites globais; a troca automatica permanece limitada a duas tentativas.
+limites globais; naquela publicacao a troca automatica ficou limitada a duas tentativas.
+
+### Percurso dinamico do catalogo — revisao local de 04/11
+
+O limite fixo de dois candidatos no chat e o de tres no cliente sem contexto
+de mensagem foram removidos nesta revisao local. A geracao recebe uma vez um
+orcamento derivado da quantidade de IDs unicos do catalogo efetivo. Cada ID e
+tentado no maximo uma vez; IDs repetidos ou vazios nao ampliam o percurso.
+Outra instancia do cliente ou etapa na mesma mensagem nao pode adquirir uma
+segunda geracao nem aumentar o orcamento original.
+
+Nao ha espera entre rejeicoes rapidas nem chamadas em paralelo. Depois de
+falha recuperavel, a proxima alternativa pode iniciar somente antes de
+completar 8s desde o inicio da geracao e com pelo menos 10s restantes no deadline
+compartilhado de 45s (ou no prazo menor imposto pelo chamador). Essa janela
+limita o inicio de novas tentativas: uma resposta em andamento pode levar mais
+de 8s e conserva seu prazo. Os valores sao uma escolha operacional local,
+nao uma medicao de latencia garantida em provedores reais.
+
+A janela e conferida depois de preparar o payload, imediatamente antes de
+reservar franquia e enviar o POST. Um candidato descartado pelo prazo nao e
+cobrado nem colocado em cooldown. Modelos que realmente falham conservam as
+pausas anteriores, e o substituto saudavel e priorizado temporariamente.
+Preco zero, `data_collection=deny`, modo ZDR configurado e 2048 tokens por
+tentativa permanecem. Nenhum cadastro ou contrato JSON muda.
+
+Os limites por usuario continuam em 6 tentativas/minuto e 50/dia por padrao,
+sem aumentar ou zerar contadores ao trocar de modelo. Assim, uma mensagem pode
+parar antes de esgotar o catalogo, inclusive ao consumir a franquia restante
+daquele minuto. As rejeicoes tambem contam localmente: catalogo maior amplia
+as alternativas, mas pode consumir mais tentativas numa mensagem com falhas.
+As [cotas gerais da OpenRouter](https://openrouter.ai/docs/api/reference/limits)
+continuam compartilhadas e nao sao renovadas pela rotacao de modelos.
+Limite global, erro de credencial/configuracao, quota por usuario, timeout,
+cancelamento e resposta invalida do chat encerram o fluxo sem outra completion.
+
+Regressoes HTTP simuladas cobrem recuperacao no sexto candidato apos cinco
+falhas 404/429/503; reutilizacao desse substituto na proxima mensagem; sucesso
+inicial sem sondar outras opcoes; oito modelos falhando sem repeticao, inclusive
+com IDs duplicados; concorrencia do orcamento; bloqueio de segunda geracao;
+limites por minuto/dia contabilizados a cada tentativa; fronteiras da janela e
+deadline curto sem cobrar ou pausar candidatos nao chamados. O pacote do
+assistente e o harness completo (`scripts/test.ps1`: formatacao, vet, build e
+testes com ordem embaralhada) passaram; cobertura geral 50,4% e assistente 67,8%.
+Nenhuma chamada real, conexao com a VM ou publicacao faz parte dessa revisao.

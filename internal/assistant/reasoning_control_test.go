@@ -120,7 +120,7 @@ func TestOpenRouterReasoningControlHTTPKeepsBoundedFreePrivateBudget(t *testing.
 	for _, scenario := range []string{"success", "invalid_json", "provider_error"} {
 		t.Run(scenario, func(t *testing.T) {
 			var calls atomic.Int32
-			payloads := make(chan map[string]any, assistantMessageMaxAttempts)
+			payloads := make(chan map[string]any, 2) // Two eligible models in this fixture.
 			setupRouterTest(t, func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet {
 					optional := testCatalogEntry("test/optional:free")
@@ -159,7 +159,7 @@ func TestOpenRouterReasoningControlHTTPKeepsBoundedFreePrivateBudget(t *testing.
 			_, err = client.generateText(GeminiRequest{DebugStage: "assistant_intent", Contents: []GeminiContent{{Role: "user", Parts: []GeminiPart{{Text: "Ola"}}}}})
 			wantCalls := int32(1)
 			if scenario == "provider_error" {
-				wantCalls = assistantMessageMaxAttempts
+				wantCalls = 2
 			}
 			if (err == nil) != (scenario == "success") || calls.Load() != wantCalls {
 				t.Fatalf("reasoning changed per-message completion budget: calls=%d err=%v", calls.Load(), err)

@@ -16,11 +16,10 @@ type assistantUsageContextKey struct{}
 
 type assistantMessageBudgetKey struct{}
 
-const assistantMessageMaxAttempts = 2
-
 type assistantMessageBudget struct {
-	started  atomic.Bool
-	attempts atomic.Int32
+	started     atomic.Bool
+	attempts    atomic.Int32
+	maxAttempts atomic.Int32
 }
 
 // Shared by every generation/attempt belonging to one chat HTTP request.
@@ -31,7 +30,21 @@ func withAssistantMessageBudget(ctx context.Context) context.Context {
 
 func assistantMessageBudgetExhausted(ctx context.Context) bool {
 	budget, ok := ctx.Value(assistantMessageBudgetKey{}).(*assistantMessageBudget)
-	return ok && (budget.started.Load() || budget.attempts.Load() >= assistantMessageMaxAttempts)
+	return ok && budget.started.Load()
+}
+
+// The generation claims the message once, with an allowance derived from its
+// distinct catalog candidates. Another client/stage cannot reset or enlarge it.
+func beginAssistantGeneration(ctx context.Context, modelCount int) bool {
+	budget, ok := ctx.Value(assistantMessageBudgetKey{}).(*assistantMessageBudget)
+	if !ok {
+		return true
+	}
+	if !budget.started.CompareAndSwap(false, true) {
+		return false
+	}
+	budget.maxAttempts.Store(int32(modelCount))
+	return true
 }
 
 type assistantUsageIdentity struct {
@@ -53,7 +66,7 @@ func reserveAssistantCall(ctx context.Context) error {
 	if budget, ok := ctx.Value(assistantMessageBudgetKey{}).(*assistantMessageBudget); ok {
 		for {
 			used := budget.attempts.Load()
-			if used >= assistantMessageMaxAttempts {
+			if used >= budget.maxAttempts.Load() {
 				return OpenRouterError{Code: "assistant_message_limit", StatusCode: http.StatusTooManyRequests}
 			}
 			if budget.attempts.CompareAndSwap(used, used+1) {

@@ -20,8 +20,11 @@ import (
 )
 
 const openRouterRequestBudget = 45 * time.Second
-const openRouterMaxAttempts = 3
+const openRouterFallbackStartWindow = 8 * time.Second
+const openRouterFallbackMinRemaining = 10 * time.Second
 const assistantIntentMaxOutputTokens = 2048
+
+var errRouterFallbackWindowClosed = errors.New("assistant fallback start window closed")
 
 // OpenRouterError deliberately contains no upstream message, request, or token.
 // Providers can include submitted content in errors; never return or log it.
@@ -200,11 +203,22 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 	if assistantMessageBudgetExhausted(client.ctx) {
 		return "", OpenRouterError{Code: "assistant_message_limit", StatusCode: http.StatusTooManyRequests}
 	}
-	// One generation owns this message, including its bounded fallback. A second
-	// client/stage cannot spend the remaining attempt after success or failure.
-	if budget, ok := client.ctx.Value(assistantMessageBudgetKey{}).(*assistantMessageBudget); ok && !budget.started.CompareAndSwap(false, true) {
+	// Keep the caller's order, but never submit the same model twice, even when
+	// a catalog or manually constructed client contains duplicate IDs.
+	models := make([]AssistantModel, 0, len(client.models))
+	seen := make(map[string]bool, len(client.models))
+	for _, model := range client.models {
+		if model.ID != "" && !seen[model.ID] {
+			models = append(models, model)
+			seen[model.ID] = true
+		}
+	}
+	// One generation owns the whole distinct pool. A second client/stage cannot
+	// spend unused candidates after success or failure.
+	if !beginAssistantGeneration(client.ctx, len(models)) {
 		return "", OpenRouterError{Code: "assistant_message_limit", StatusCode: http.StatusTooManyRequests}
 	}
+	started := time.Now()
 	ctx, cancel := context.WithTimeout(client.ctx, openRouterRequestBudget)
 	defer cancel()
 	if retry := routerCooldownRemaining(client.account); retry > 0 {
@@ -212,11 +226,6 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 	}
 	lastError := OpenRouterError{Code: "assistant_models_unavailable", StatusCode: http.StatusServiceUnavailable, RetryAfterSeconds: 30}
 	attempts := 0
-	maxAttempts := openRouterMaxAttempts
-	if client.ctx.Value(assistantMessageBudgetKey{}) != nil {
-		maxAttempts = assistantMessageMaxAttempts
-	}
-	models := client.models
 	if client.automatic {
 		preferred := openRouterAutoRouting.preferred(client.account, models, time.Now())
 		if preferred != "" && routerCooldownRemaining(client.account+":"+preferred) > 0 {
@@ -226,9 +235,6 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 		models = orderedAssistantModels(models, preferred)
 	}
 	for _, model := range models {
-		if attempts >= maxAttempts {
-			break
-		}
 		if ctx.Err() != nil {
 			interrupted, _ := routerRequestInterruption(ctx, ctx.Err(), request.DebugStage)
 			return "", interrupted
@@ -240,9 +246,16 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 		if routerCooldownRemaining(cooldownKey) > 0 {
 			continue
 		}
-		text, attempted, err := client.generateWithModel(ctx, model, request)
+		var fallbackBefore time.Time
+		if attempts > 0 {
+			fallbackBefore = started.Add(openRouterFallbackStartWindow)
+		}
+		text, attempted, err := client.generateWithModel(ctx, model, request, fallbackBefore)
 		if attempted {
 			attempts++
+		}
+		if errors.Is(err, errRouterFallbackWindowClosed) {
+			break
 		}
 		if err == nil {
 			if client.automatic {
@@ -262,7 +275,7 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 			return "", typed
 		}
 		if typed.Code == "assistant_request_cancelled" || typed.Code == "assistant_request_timeout" || typed.Code == "assistant_invalid_request" ||
-			typed.Code == "assistant_user_limit" || typed.Code == "assistant_configuration_error" {
+			typed.Code == "assistant_user_limit" || typed.Code == "assistant_configuration_error" || typed.Code == "assistant_message_limit" {
 			return "", typed
 		}
 		openRouterAutoRouting.forget(client.account, model.ID)
@@ -289,7 +302,7 @@ func (client *openRouterClient) generateText(request GeminiRequest) (string, err
 	if len(models) > 0 {
 		// The response controls when a NEW message may use any model, not
 		// when the last failed model may be retried. Include candidates not
-		// visited because this message already spent its attempt allowance.
+		// visited because the fallback start window or allowance ended.
 		lastError.RetryAfterSeconds = modelPoolCooldownSeconds(client.account, models)
 	}
 	return "", lastError
@@ -309,7 +322,20 @@ func modelPoolCooldownSeconds(account string, models []AssistantModel) int {
 	return earliest
 }
 
-func (client *openRouterClient) generateWithModel(ctx context.Context, model AssistantModel, req GeminiRequest) (string, bool, error) {
+// This bounds when another provider may be started, not the response time of
+// an attempt already in flight. All attempts share the original 45s deadline.
+func routerFallbackCanStart(ctx context.Context, before, now time.Time) bool {
+	if before.IsZero() {
+		return true
+	}
+	if !now.Before(before) {
+		return false
+	}
+	deadline, ok := ctx.Deadline()
+	return !ok || deadline.Sub(now) >= openRouterFallbackMinRemaining
+}
+
+func (client *openRouterClient) generateWithModel(ctx context.Context, model AssistantModel, req GeminiRequest, fallbackBefore time.Time) (string, bool, error) {
 	payload, err := routerPayload(model, req)
 	if err != nil {
 		return "", false, err
@@ -334,6 +360,11 @@ func (client *openRouterClient) generateWithModel(ctx context.Context, model Ass
 	// neither spends another user's allowance nor sends another provider call.
 	if retry := routerCooldownRemaining(client.account); retry > 0 {
 		return "", false, OpenRouterError{Code: "assistant_quota_exceeded", StatusCode: http.StatusTooManyRequests, RetryAfterSeconds: retry, Global: true}
+	}
+	// Check immediately before reserving/sending: serializing the payload must
+	// not let a late fallback consume quota or quarantine an uncalled model.
+	if !routerFallbackCanStart(ctx, fallbackBefore, time.Now()) {
+		return "", false, errRouterFallbackWindowClosed
 	}
 	if err := reserveAssistantCall(ctx); err != nil {
 		return "", false, err
